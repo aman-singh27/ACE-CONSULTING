@@ -1,0 +1,21 @@
+version: "3.9"
+
+services:
+
+  postgres:
+    image: postgres:15
+    container_name: jobintel_postgres
+
+    environment:
+      POSTGRES_USER: jobintel
+      POSTGRES_PASSWORD: jobintel
+      POSTGRES_DB: jobintel
+
+    ports:
+      - "5432:5432"
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
