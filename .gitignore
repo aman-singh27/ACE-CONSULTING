@@ -1,0 +1,26 @@
+# Python bytecode / cache
+__pycache__/
+*.py[cod]
+*.pyd
+
+# Virtualenvs
+.venv/
+venv/
+ENV/
+
+# Test / coverage artifacts
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Local scratch artifacts seen in repo
+jobintel/backend/desc_*.txt
+jobintel/backend/diag_*.py

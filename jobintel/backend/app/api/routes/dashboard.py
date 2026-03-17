@@ -50,7 +50,6 @@ async def get_dashboard_summary(db: AsyncSession = Depends(get_db)):
         total_bd_alerts += len(insight.companies_spiking or [])
         total_bd_alerts += len(insight.companies_struggling or [])
         total_bd_alerts += len(insight.new_entrants or [])
-        total_bd_alerts += len(insight.domain_surges or [])
         total_bd_alerts += len(insight.ghost_posters or [])
         total_bd_alerts += len(insight.salary_signals or [])
     

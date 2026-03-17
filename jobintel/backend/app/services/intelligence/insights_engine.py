@@ -104,41 +104,6 @@ async def generate_daily_insights(db: AsyncSession) -> Dict[str, int]:
             "location": location
         })
 
-    # ── 4. Domain Surges ───────────────
-    domain_surges = []
-    seven_days_ago = now_utc - timedelta(days=7)
-    
-    stmt_domain_today = select(
-        JobPosting.domain, func.count(JobPosting.id).label("count")
-    ).where(
-        cast(JobPosting.scraped_at, Date) == today,
-        JobPosting.domain.is_not(None)
-    ).group_by(JobPosting.domain)
-    
-    stmt_domain_7d = select(
-        JobPosting.domain, func.count(JobPosting.id).label("count")
-    ).where(
-        JobPosting.scraped_at >= seven_days_ago,
-        cast(JobPosting.scraped_at, Date) < today,
-        JobPosting.domain.is_not(None)
-    ).group_by(JobPosting.domain)
-
-    res_today = await db.execute(stmt_domain_today)
-    res_7d = await db.execute(stmt_domain_7d)
-    
-    today_counts = {row.domain: row.count for row in res_today}
-    seven_day_counts = {row.domain: row.count for row in res_7d}
-    
-    for domain, count_today in today_counts.items():
-        total_7d = seven_day_counts.get(domain, 0)
-        avg_7d = total_7d / 7.0
-        if avg_7d > 0 and count_today > (avg_7d * 1.3):
-            pct_change = ((count_today - avg_7d) / avg_7d) * 100
-            domain_surges.append({
-                "domain": domain,
-                "pct_change_wow": round(pct_change, 2),
-                "total_postings_today": count_today
-            })
 
     # ── 5. Ghost Posters ───────────────
     ghost_posters = []
@@ -214,7 +179,6 @@ async def generate_daily_insights(db: AsyncSession) -> Dict[str, int]:
         "companies_spiking": spiking_companies,
         "companies_struggling": struggling_companies,
         "new_entrants": new_entrants,
-        "domain_surges": domain_surges,
         "ghost_posters": ghost_posters,
         "salary_signals": salary_signals,
         "total_jobs_today": total_jobs_today,
@@ -229,7 +193,6 @@ async def generate_daily_insights(db: AsyncSession) -> Dict[str, int]:
             "companies_spiking": stmt_insert_insight.excluded.companies_spiking,
             "companies_struggling": stmt_insert_insight.excluded.companies_struggling,
             "new_entrants": stmt_insert_insight.excluded.new_entrants,
-            "domain_surges": stmt_insert_insight.excluded.domain_surges,
             "ghost_posters": stmt_insert_insight.excluded.ghost_posters,
             "salary_signals": stmt_insert_insight.excluded.salary_signals,
             "total_jobs_today": stmt_insert_insight.excluded.total_jobs_today,
@@ -246,7 +209,6 @@ async def generate_daily_insights(db: AsyncSession) -> Dict[str, int]:
         "spiking_companies_count": len(spiking_companies),
         "struggling_companies_count": len(struggling_companies),
         "new_entrants_count": len(new_entrants),
-        "domain_surges_count": len(domain_surges),
         "ghost_posters_count": len(ghost_posters),
         "salary_signals_count": len(salary_signals)
     }

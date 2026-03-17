@@ -5,8 +5,6 @@ import { CompaniesPage } from "../pages/Companies/CompaniesPage";
 import { JobsPage } from "../pages/Jobs/JobsPage";
 import { RunsPage } from "../pages/Runs/RunsPage";
 import { ActorsPage } from "../pages/Actors/ActorsPage";
-import { DomainIntelligencePage } from "../pages/DomainIntelligence/DomainIntelligencePage";
-import { GeoInsightsPage } from "../pages/GeoInsights/GeoInsightsPage";
 
 const router = createBrowserRouter([
     {
@@ -21,14 +19,7 @@ const router = createBrowserRouter([
                 path: "companies",
                 element: <CompaniesPage />,
             },
-            {
-                path: "domain-intelligence",
-                element: <DomainIntelligencePage />,
-            },
-            {
-                path: "geo-insights",
-                element: <GeoInsightsPage />,
-            },
+
             {
                 path: "jobs",
                 element: <JobsPage />,

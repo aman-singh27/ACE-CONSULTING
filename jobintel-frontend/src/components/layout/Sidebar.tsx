@@ -1,12 +1,10 @@
-import { Activity, Briefcase, Building2, LayoutDashboard, TrendingUp, Globe } from "lucide-react";
+import { Activity, Briefcase, Building2, LayoutDashboard } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { cn } from "../ui/Card";
 
 const NAV_ITEMS = [
     { label: 'Command Center', path: '/', icon: LayoutDashboard },
     { label: 'Company Intelligence', path: '/companies', icon: Building2 },
-    { label: 'Domain Intelligence', path: '/domain-intelligence', icon: TrendingUp },
-    { label: 'Geo Hiring Map', path: '/geo-insights', icon: Globe },
     { label: 'Master Job Table', path: '/jobs', icon: Briefcase },
     { label: 'Actors', path: '/actors', icon: Activity },
     { label: 'Run Monitor', path: '/runs', icon: Activity },

@@ -142,42 +142,6 @@ class DashboardAlert(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-# ── Domain Trends Schemas ────────────────────────────────────────────
-
-class TopCompany(BaseModel):
-    company_id: str
-    company_name: str
-    job_count: int
-
-class DomainTrendsResponse(BaseModel):
-    domain: str
-    today_count: int
-    yesterday_count: int
-    wow_change: float
-    active_companies: int
-    top_company: Optional[TopCompany] = None
-    
-    model_config = ConfigDict(from_attributes=True)
-
-
-# ── Geo Intelligence Schemas ─────────────────────────────────────────
-
-class CountryHeatmapResponse(BaseModel):
-    country: str
-    job_count: int
-    top_domain: str
-    top_company: Optional[TopCompany] = None
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-class CityBreakdownResponse(BaseModel):
-    city: str
-    job_count: int
-    top_company: Optional[TopCompany] = None
-
-    model_config = ConfigDict(from_attributes=True)
-
 
 # ── Run Monitor Schemas ──────────────────────────────────────
 

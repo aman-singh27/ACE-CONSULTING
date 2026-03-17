@@ -28,11 +28,8 @@ class DailyInsight(Base):
     companies_spiking = mapped_column(JSONB, nullable=True)
     companies_struggling = mapped_column(JSONB, nullable=True)
     new_entrants = mapped_column(JSONB, nullable=True)
-    domain_surges = mapped_column(JSONB, nullable=True)
     ghost_posters = mapped_column(JSONB, nullable=True)
     salary_signals = mapped_column(JSONB, nullable=True)
-    top_companies_by_domain = mapped_column(JSONB, nullable=True)
-    geo_hotspots = mapped_column(JSONB, nullable=True)
 
     # ── Aggregates ───────────────────────────────────────────
     total_jobs_today: Mapped[Optional[int]] = mapped_column(Integer)

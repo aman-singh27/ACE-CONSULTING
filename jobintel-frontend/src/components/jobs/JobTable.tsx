@@ -38,15 +38,24 @@ export function JobTable({ filters, page, setPage, onRowClick }: JobTableProps) 
 
     const formatDate = (dateString: string) => {
         if (!dateString) return "Unknown";
-        const date = new Date(dateString);
+        try {
+            const date = new Date(dateString);
+            if (isNaN(date.getTime())) return "Unknown";
 
-        const rtf = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
-        const daysDifference = Math.round((date.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+            const now = new Date();
+            const daysDifference = Math.round((date.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
 
-        if (daysDifference === 0) return "Today";
-        if (daysDifference > -7) return rtf.format(daysDifference, 'day');
+            if (daysDifference === 0) return "Today";
+            
+            const rtf = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
+            if (daysDifference > -7 && daysDifference < 7) {
+                return rtf.format(daysDifference, 'day');
+            }
 
-        return date.toLocaleDateString();
+            return date.toLocaleDateString();
+        } catch (e) {
+            return "Unknown";
+        }
     };
 
     return (
@@ -93,10 +102,10 @@ export function JobTable({ filters, page, setPage, onRowClick }: JobTableProps) 
                                         {job.company_name || 'Unknown'}
                                     </TableCell>
                                     <TableCell className="text-text-primary text-xs max-w-[150px] truncate">
-                                        {job.emails && job.emails.length > 0 ? job.emails.join(", ") : <span className="text-text-muted">—</span>}
+                                        {Array.isArray(job.emails) && job.emails.length > 0 ? job.emails.join(", ") : <span className="text-text-muted">—</span>}
                                     </TableCell>
                                     <TableCell className="text-text-primary text-xs max-w-[120px] truncate">
-                                        {job.phones && job.phones.length > 0 ? job.phones.join(", ") : <span className="text-text-muted">—</span>}
+                                        {Array.isArray(job.phones) && job.phones.length > 0 ? job.phones.join(", ") : <span className="text-text-muted">—</span>}
                                     </TableCell>
                                     <TableCell className="text-text-secondary">
                                         {job.domain || 'N/A'}

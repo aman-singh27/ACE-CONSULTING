@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { JobFilters } from "../../components/jobs/JobFilters";
 import { JobTable, type JobItem } from "../../components/jobs/JobTable";
 import { JobDetailDrawer } from "../../components/jobs/JobDetailDrawer";
@@ -12,10 +12,10 @@ export function JobsPage() {
     const [selectedJob, setSelectedJob] = useState<JobItem | null>(null);
     const [isExporting, setIsExporting] = useState(false);
 
-    const handleFilterChange = (newFilters: Record<string, any>) => {
+    const handleFilterChange = useCallback((newFilters: Record<string, any>) => {
         setFilters(newFilters);
         setPage(1); // Reset to first page on filter change
-    };
+    }, []);
 
     const handleExport = async () => {
         setIsExporting(true);
