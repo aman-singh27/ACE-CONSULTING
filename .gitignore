@@ -8,9 +8,6 @@ __pycache__/
 venv/
 ENV/
 
-# Environment variables
-.env
-
 # Test / coverage artifacts
 .pytest_cache/
 .mypy_cache/

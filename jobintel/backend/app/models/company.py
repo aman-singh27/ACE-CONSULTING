@@ -5,7 +5,6 @@ Company model – aggregated company profiles.
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
-
 from sqlalchemy import (
     Boolean,
     DateTime,
@@ -16,10 +15,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
-
 from app.db.base import Base
 from app.models.base import TimestampMixin
-
 
 class Company(TimestampMixin, Base):
     __tablename__ = "companies"
@@ -78,6 +75,17 @@ class Company(TimestampMixin, Base):
     website: Mapped[Optional[str]] = mapped_column(Text)
 
     hq_country: Mapped[Optional[str]] = mapped_column(Text)
+
+    # ── HubSpot sync ─────────────────────────────────────────
+    hubspot_company_id: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True, index=True
+    )
+    hubspot_deal_id: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True
+    )
+    hubspot_synced_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     # ── Indexes (declarative) ────────────────────────────────
     __table_args__ = (

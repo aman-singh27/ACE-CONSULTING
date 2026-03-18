@@ -87,3 +87,34 @@ async def run_company_metrics():
         except Exception as e:
             logger.error(f"Failed to recalculate company metrics: {e}")
 
+
+async def run_hubspot_sync():
+    """
+    Nightly HubSpot sync job.
+    Syncs all companies updated in last 24 hours.
+    """
+    logger.info("Scheduler: starting HubSpot sync...")
+    async with async_session_factory() as db:
+        try:
+            from app.services.hubspot.sync_service import (
+                sync_companies_to_hubspot
+            )
+            summary = await sync_companies_to_hubspot(db)
+            logger.info(
+                "Scheduler: HubSpot sync complete. Summary: %s",
+                summary
+            )
+            # Store result in the status tracker
+            from app.api.routes.hubspot import _store_sync_result
+            _store_sync_result(summary)
+        except Exception as e:
+            logger.error(
+                "Scheduler: HubSpot sync failed: %s", e
+            )
+            from app.api.routes.hubspot import _store_sync_result
+            _store_sync_result({
+                "error": str(e),
+                "companies_synced": 0,
+                "synced_at": datetime.now(timezone.utc).isoformat()
+            })
+

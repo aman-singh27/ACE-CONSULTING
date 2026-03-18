@@ -99,6 +99,11 @@ class CompanyResponse(BaseModel):
     linkedin_url: Optional[str] = None
     website: Optional[str] = None
     hq_country: Optional[str] = None
+    
+    # ── HubSpot sync ─────────────────────────────────────────
+    hubspot_company_id: Optional[str] = None
+    hubspot_deal_id: Optional[str] = None
+    hubspot_synced_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
 

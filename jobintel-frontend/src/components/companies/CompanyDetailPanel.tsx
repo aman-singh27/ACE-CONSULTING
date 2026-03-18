@@ -4,6 +4,7 @@ import { Badge } from "../ui/Badge";
 import { X } from "lucide-react";
 import { CompanyEnrichment } from "./CompanyEnrichment";
 import { CompanyContacts } from "./CompanyContacts";
+import { CompanyHubSpotSection } from "./CompanyHubSpotSection";
 
 interface CompanyDetailProps {
     company: any; // Using any here to quickly wire up, later refine type
@@ -109,6 +110,11 @@ export function CompanyDetailPanel({ company, onClose }: CompanyDetailProps) {
             <div className="px-6 pb-2 border-b border-border-subtle bg-bg-surface">
                 <CompanyEnrichment company={company} />
                 <CompanyContacts company={company} />
+            </div>
+
+            {/* Content: HubSpot Integration */}
+            <div className="px-6 py-2 border-b border-border-subtle bg-bg-surface">
+                <CompanyHubSpotSection company={company} />
             </div>
 
             {/* Content: Recent Jobs */}

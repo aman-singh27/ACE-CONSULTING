@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { getCompanies } from "../../services/api/companies";
 import { Badge } from "../ui/Badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/Table";
+import { Check, X, Clock } from "lucide-react";
 
 interface CompanyItem {
     id: string;
@@ -12,6 +13,9 @@ interface CompanyItem {
     hiring_velocity_score: number;
     bd_tags: string[];
     last_active_at: string;
+    hubspot_company_id?: string;
+    hubspot_deal_id?: string;
+    hubspot_synced_at?: string;
 }
 
 interface CompanyTableProps {
@@ -54,6 +58,16 @@ export function CompanyTable({ filters, onRowClick }: CompanyTableProps) {
         return `${prefix}${Math.round(score * 100)}%`;
     };
 
+    const getHubSpotStatus = (company: CompanyItem) => {
+        if (company.hubspot_synced_at) {
+            return { status: 'synced', icon: Check, color: 'text-green-500' };
+        } else if (company.hubspot_company_id) {
+            return { status: 'in_progress', icon: Clock, color: 'text-yellow-500' };
+        } else {
+            return { status: 'not_synced', icon: X, color: 'text-red-500' };
+        }
+    };
+
     return (
         <div className="w-full flex flex-col h-full bg-bg-surface rounded-card border border-border-subtle overflow-hidden">
             <div className="overflow-auto flex-grow">
@@ -67,23 +81,28 @@ export function CompanyTable({ filters, onRowClick }: CompanyTableProps) {
                             <TableHead className="text-right">Velocity</TableHead>
                             <TableHead>BD Tags</TableHead>
                             <TableHead>Last Active</TableHead>
+                            <TableHead>HubSpot</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
                         {isLoading ? (
                             <TableRow>
-                                <TableCell colSpan={7} className="text-center py-8 text-text-secondary animate-pulse">
+                                <TableCell colSpan={8} className="text-center py-8 text-text-secondary animate-pulse">
                                     Loading companies...
                                 </TableCell>
                             </TableRow>
                         ) : isError ? (
                             <TableRow>
-                                <TableCell colSpan={7} className="text-center py-8 text-text-error">
+                                <TableCell colSpan={8} className="text-center py-8 text-text-error">
                                     Failed to load companies
                                 </TableCell>
                             </TableRow>
                         ) : companies.length > 0 ? (
-                            companies.map((company) => (
+                            companies.map((company) => {
+                                const hubspotStatus = getHubSpotStatus(company);
+                                const StatusIcon = hubspotStatus.icon;
+                                
+                                return (
                                 <TableRow
                                     key={company.id}
                                     onClick={() => onRowClick(company)}
@@ -120,11 +139,15 @@ export function CompanyTable({ filters, onRowClick }: CompanyTableProps) {
                                     <TableCell className="text-text-secondary text-sm">
                                         {formatDate(company.last_active_at)}
                                     </TableCell>
+                                    <TableCell className="text-center">
+                                        <StatusIcon size={16} className={hubspotStatus.color} />
+                                    </TableCell>
                                 </TableRow>
-                            ))
+                                );
+                            })
                         ) : (
                             <TableRow>
-                                <TableCell colSpan={7} className="text-center py-8 text-text-secondary">
+                                <TableCell colSpan={8} className="text-center py-8 text-text-secondary">
                                     No companies match the current filters
                                 </TableCell>
                             </TableRow>

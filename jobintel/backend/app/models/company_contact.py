@@ -3,6 +3,7 @@ CompanyContact model – cached people search results from Apollo.
 """
 
 import uuid
+from typing import Optional
 from sqlalchemy import Column, String, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship, Mapped, mapped_column
@@ -33,3 +34,8 @@ class CompanyContact(TimestampMixin, Base):
     department: Mapped[str] = mapped_column(String, nullable=True)
     seniority: Mapped[str] = mapped_column(String, nullable=True)
     source: Mapped[str] = mapped_column(String, nullable=True)
+
+    # ── HubSpot sync ─────────────────────────────────────────
+    hubspot_contact_id: Mapped[Optional[str]] = mapped_column(
+        String, nullable=True
+    )

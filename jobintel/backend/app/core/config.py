@@ -38,4 +38,8 @@ class Settings(BaseSettings):
     APOLLO_API_KEY: str = "your_apollo_api_key_here"
     APOLLO_BASE_URL: str = "https://api.apollo.io/v1"
 
+    # ── HubSpot ──────────────────────────────────────────────
+    HUBSPOT_API_KEY: str = "your_hubspot_api_key_here"
+    HUBSPOT_BASE_URL: str = "https://api.hubapi.com"
+
 settings = Settings()

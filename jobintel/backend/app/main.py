@@ -8,13 +8,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
-from app.api.routes import health, webhook, jobs, companies, dashboard, insights, runs, actors
+from app.api.routes import health, webhook, jobs, companies, dashboard, insights, runs, actors, hubspot
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.db.session import engine
 
 from app.services.scheduler.scheduler import scheduler
-from app.services.scheduler.jobs import check_due_actors, run_daily_insights, run_company_metrics
+from app.services.scheduler.jobs import check_due_actors, run_daily_insights, run_company_metrics, run_hubspot_sync
 
 logger = get_logger(__name__)
 
@@ -50,6 +50,14 @@ async def lifespan(app: FastAPI):
         minute=30,
         timezone="UTC",
         id="recalculate_company_metrics"
+    )
+    scheduler.add_job(
+        run_hubspot_sync,
+        "cron",
+        hour=3,
+        minute=0,
+        timezone="UTC",
+        id="hubspot_nightly_sync"
     )
     scheduler.start()
     logger.info("Scheduler started")
@@ -89,3 +97,4 @@ app.include_router(dashboard.router, prefix="/api/v1/dashboard")
 app.include_router(insights.router, prefix="/api/v1/insights")
 app.include_router(runs.router, prefix="/api/v1/runs")
 app.include_router(actors.router, prefix="/api/v1/actors")
+app.include_router(hubspot.router, prefix="/api/v1/hubspot")
