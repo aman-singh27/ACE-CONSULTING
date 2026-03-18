@@ -1,4 +1,10 @@
-import { Briefcase, Building2, Cpu, LayoutDashboard, Link2 } from "lucide-react";
+import {
+  Briefcase,
+  Building2,
+  Cpu,
+  LayoutDashboard,
+  Link2,
+} from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { cn } from "../ui/Card";
 

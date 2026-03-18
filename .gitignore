@@ -21,6 +21,9 @@ Thumbs.db
 .idea/
 .vscode/
 
+.env
+.env.local
+.env.*.local
 # Local scratch artifacts seen in repo
 jobintel/backend/desc_*.txt
 jobintel/backend/diag_*.py
