@@ -16,12 +16,7 @@ export async function getCompanyJobs(id: string) {
     return res.data;
 }
 
-export async function enrichCompany(companyId: string) {
-    const res = await apiClient.post(`/companies/${companyId}/enrich`);
-    return res.data;
-}
-
-export async function findCompanyContacts(companyId: string) {
-    const res = await apiClient.post(`/companies/${companyId}/contacts`);
+export async function getCompanyContacts(id: string) {
+    const res = await apiClient.get(`/companies/${id}/contacts`);
     return res.data;
 }

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { getCompanies } from "../../services/api/companies";
-import { getSyncHistory, setupHubSpotProperties, triggerHubSpotSync } from "../../services/api/hubspot";
+import { getSyncHistory, setupHubSpotProperties, triggerHubSpotSync, saveHubSpotAPIKey } from "../../services/api/hubspot";
 import type { SyncHistoryEntry } from "../../services/api/hubspot";
 import { HubSpotSyncPanel } from "../../components/dashboard/HubSpotSyncPanel";
 import { KpiCard } from "../../components/ui/KpiCard";
@@ -76,7 +76,7 @@ export function HubSpotPage() {
 }
 
 function HubSpotOverviewTab() {
-  const { data: companiesData } = useQuery({
+  const { data: companiesData, refetch: refetchCompanies } = useQuery({
     queryKey: ["companies", { limit: 1000 }],
     queryFn: () => getCompanies({ limit: 1000 }),
   });
@@ -89,7 +89,7 @@ function HubSpotOverviewTab() {
 
   return (
     <div className="space-y-6">
-      <HubSpotSyncPanel />
+      <HubSpotSyncPanel onSyncComplete={() => refetchCompanies()} />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiCard label="Companies synced" metric={syncedCount} />
@@ -352,6 +352,13 @@ function HubSpotSetupTab({ onSetupComplete }: HubSpotSetupTabProps) {
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [setupDone, setSetupDone] = useState(false);
 
+  const { mutate: saveApiKeyMutation, isPending: saveApiKeyPending, error: saveApiKeyError } = useMutation({
+    mutationFn: (apiKey: string) => saveHubSpotAPIKey(apiKey),
+    onSuccess: () => {
+      setStep(2);
+    },
+  });
+
   const { mutate: setupMutation, isPending: setupPending, error: setupError } = useMutation({
     mutationFn: setupHubSpotProperties,
     onSuccess: () => setSetupDone(true),
@@ -360,6 +367,12 @@ function HubSpotSetupTab({ onSetupComplete }: HubSpotSetupTabProps) {
   const { mutate: testMutation, data: testResult, isPending: testPending } = useMutation({
     mutationFn: () => triggerHubSpotSync(1),
   });
+
+  const handleSaveApiKey = () => {
+    if (apiKeyInput.trim()) {
+      saveApiKeyMutation(apiKeyInput);
+    }
+  };
 
   const handleTestSync = () => {
     testMutation();
@@ -423,20 +436,27 @@ function HubSpotSetupTab({ onSetupComplete }: HubSpotSetupTabProps) {
                 className="w-full border border-border-default rounded-md bg-bg-base text-text-primary px-3 py-2 text-sm"
               />
               <p className="text-xs text-text-muted">
-                This token is stored in your backend .env file. Update HUBSPOT_API_KEY and restart the server.
+                Your token is securely saved to the database. No server restart required.
               </p>
             </div>
 
-            <div className="bg-amber-400/10 border border-amber-400/20 rounded-lg p-3 text-xs text-amber-400">
-              ⚠ After updating your .env file, restart the backend server before continuing to Step 2.
+            {saveApiKeyError && (
+              <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 text-xs text-red-400">
+                Failed to save API key. Please try again.
+              </div>
+            )}
+
+            <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3 text-xs text-green-500">
+              ✓ Once saved, your token is immediately available to JobIntel.
             </div>
 
             <div className="flex justify-end">
               <Button
-                onClick={() => setStep(2)}
-                disabled={!apiKeyInput.trim()}
+                onClick={handleSaveApiKey}
+                disabled={!apiKeyInput.trim() || saveApiKeyPending}
               >
-                Next: Configure →
+                {saveApiKeyPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                {saveApiKeyPending ? 'Saving...' : 'Save & Configure →'}
               </Button>
             </div>
           </CardContent>

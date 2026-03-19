@@ -13,6 +13,7 @@ from app.api.deps import get_db
 from app.models.job_posting import JobPosting
 from app.models.company_contact import CompanyContact
 from app.schemas.api import JobDetailResponse, JobResponse, PaginatedResponse
+from app.utils.contact_validation import is_valid_phone_number
 
 router = APIRouter(tags=["jobs"])
 
@@ -28,6 +29,7 @@ async def list_jobs(
     is_duplicate: Optional[bool] = None,
     employment_type: Optional[str] = None,
     search: Optional[str] = None,
+    hide_confidential: bool = Query(False, description="If true, exclude jobs from confidential companies"),
     db: AsyncSession = Depends(get_db),
 ):
     """List jobs with pagination and filtering."""
@@ -59,6 +61,10 @@ async def list_jobs(
                 JobPosting.company_name.ilike(f"%{search}%")
             )
         )
+    
+    # Handle confidential filter - filter by company_name "Confidential"
+    if hide_confidential:
+        filters.append(JobPosting.company_name != "Confidential")
         
     if filters:
         stmt = stmt.where(*filters)
@@ -91,9 +97,10 @@ async def list_jobs(
             if cid not in contact_map_phones:
                 contact_map_phones[cid] = []
                 
+            # Only include valid emails and phones
             if c.email and c.email not in contact_map_emails[cid]:
                 contact_map_emails[cid].append(c.email)
-            if c.phone and c.phone not in contact_map_phones[cid]:
+            if c.phone and is_valid_phone_number(c.phone) and c.phone not in contact_map_phones[cid]:
                 contact_map_phones[cid].append(c.phone)
 
     # Convert to JobResponse and attach contacts
@@ -130,6 +137,7 @@ async def get_job(job_id: UUID, db: AsyncSession = Depends(get_db)):
         contact_res = await db.execute(contact_stmt)
         contacts = contact_res.scalars().all()
         responses.emails = list(set(c.email for c in contacts if c.email))
-        responses.phones = list(set(c.phone for c in contacts if c.phone))
+        # Only include valid phone numbers
+        responses.phones = list(set(c.phone for c in contacts if c.phone and is_valid_phone_number(c.phone)))
         
     return responses

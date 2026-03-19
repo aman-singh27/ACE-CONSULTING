@@ -28,8 +28,9 @@ export async function getHubSpotSyncStatus(): Promise<SyncStatusResponse> {
 
 export async function triggerHubSpotSync(
   hoursBack: number = 24,
+  forceAll: boolean = false,
 ): Promise<SyncTriggerResponse> {
-  const res = await apiClient.post(`/hubspot/sync?hours_back=${hoursBack}`);
+  const res = await apiClient.post(`/hubspot/sync?hours_back=${hoursBack}&force_all=${forceAll}`);
   return res.data;
 }
 
@@ -45,6 +46,26 @@ export async function setupHubSpotProperties(): Promise<{
   message: string;
 }> {
   const res = await apiClient.post("/hubspot/setup");
+  return res.data;
+}
+
+export async function saveHubSpotAPIKey(apiKey: string): Promise<{
+  status: string;
+  message: string;
+  saved: boolean;
+}> {
+  const res = await apiClient.post("/hubspot/config/api-key", {
+    api_key: apiKey,
+  });
+  return res.data;
+}
+
+export async function getHubSpotAPIKeyStatus(): Promise<{
+  status: string;
+  configured_from: string;
+  message: string;
+}> {
+  const res = await apiClient.get("/hubspot/config/api-key-status");
   return res.data;
 }
 

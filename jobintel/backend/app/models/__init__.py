@@ -9,3 +9,4 @@ from app.models.company_contact import CompanyContact  # noqa: F401
 from app.models.daily_insight import DailyInsight  # noqa: F401
 from app.models.enrichment_cache import EnrichmentCache  # noqa: F401
 from app.models.job_posting import JobPosting  # noqa: F401
+from app.models.system_settings import SystemSettings  # noqa: F401

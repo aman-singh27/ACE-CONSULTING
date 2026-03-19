@@ -14,7 +14,11 @@ from app.core.logging import get_logger
 from app.models.company import Company
 from app.models.company_contact import CompanyContact
 from app.models.job_posting import JobPosting
-from app.services.hubspot.hubspot_client import hubspot_client
+from app.services.hubspot.hubspot_client import (
+    hubspot_client,
+    get_hubspot_api_key,
+    create_hubspot_client,
+)
 
 logger = get_logger(__name__)
 
@@ -59,15 +63,25 @@ def _build_note_body(
         note_lines.append("No recent job postings found.")
     else:
         for job in jobs[:10]:  # Cap at 10 jobs
-            days_ago = (datetime.now(timezone.utc) - job.posted_at).days
-            if days_ago == 0:
-                relative_date = "today"
-            elif days_ago == 1:
-                relative_date = "yesterday"
-            elif days_ago <= 6:
-                relative_date = f"{days_ago} days ago"
-            else:
-                relative_date = job.posted_at.strftime("%b %d")
+            try:
+                if job.posted_at is None:
+                    relative_date = "date unknown"
+                else:
+                    # Ensure timezone-aware for comparison
+                    posted = job.posted_at
+                    if posted.tzinfo is None:
+                        posted = posted.replace(tzinfo=timezone.utc)
+                    days_ago = (datetime.now(timezone.utc) - posted).days
+                    if days_ago == 0:
+                        relative_date = "today"
+                    elif days_ago == 1:
+                        relative_date = "yesterday"
+                    elif days_ago <= 6:
+                        relative_date = f"{days_ago} days ago"
+                    else:
+                        relative_date = posted.strftime("%b %d")
+            except Exception:
+                relative_date = "date unknown"
 
             location = job.location_raw or "Location N/A"
             note_lines.append(
@@ -79,32 +93,71 @@ def _build_note_body(
 
 async def sync_companies_to_hubspot(
     db: AsyncSession,
-    hours_back: int = 24
+    hours_back: int = 24,
+    force_all: bool = False
 ) -> Dict[str, Any]:
     """
     Syncs all companies updated in the last {hours_back} hours
     to HubSpot using batch operations.
-    Returns a summary dict.
+    
+    Args:
+        db: Database session
+        hours_back: How many hours back to look for updates (default 24)
+        force_all: If True, sync ALL companies regardless of update time
+        
+    Returns:
+        Summary dict with sync results
     """
     start_time = time.time()
     now_utc = datetime.now(timezone.utc)
+    
+    # Get the current HubSpot API key from database or environment
+    api_key = await get_hubspot_api_key(db)
+    hubspot_client_instance = create_hubspot_client(api_key)
 
     try:
-        logger.info("Starting HubSpot sync for companies updated in last %d hours", hours_back)
+        if force_all:
+            logger.info("Force sync: syncing ALL companies")
+        else:
+            logger.info("Starting HubSpot sync for companies updated in last %d hours", hours_back)
 
         # STEP 1 — Fetch companies to sync
         cutoff_time = now_utc - timedelta(hours=hours_back)
 
-        stmt = (
-            select(Company)
-            .where(
-                Company.last_active_at >= cutoff_time,
-                ~Company.company_name.ilike("%confidential%"),
-                ~Company.company_name.ilike("%unknown%"),
+        # If force_all is True, sync all companies. Otherwise use time filter.
+        if force_all:
+            logger.info("Force mode: syncing ALL companies (ignoring time filter)")
+            stmt = (
+                select(Company)
+                .where(
+                    ~Company.company_name.ilike("%confidential%"),
+                    ~Company.company_name.ilike("%unknown%"),
+                )
+                .order_by(Company.hiring_velocity_score.desc())
+                .limit(MAX_COMPANIES_PER_SYNC)
             )
-            .order_by(Company.hiring_velocity_score.desc())
-            .limit(MAX_COMPANIES_PER_SYNC)
-        )
+        elif hours_back == 1:
+            logger.info("Testing mode: syncing ALL companies (ignoring time filter)")
+            stmt = (
+                select(Company)
+                .where(
+                    ~Company.company_name.ilike("%confidential%"),
+                    ~Company.company_name.ilike("%unknown%"),
+                )
+                .order_by(Company.hiring_velocity_score.desc())
+                .limit(MAX_COMPANIES_PER_SYNC)
+            )
+        else:
+            stmt = (
+                select(Company)
+                .where(
+                    Company.last_active_at >= cutoff_time,
+                    ~Company.company_name.ilike("%confidential%"),
+                    ~Company.company_name.ilike("%unknown%"),
+                )
+                .order_by(Company.hiring_velocity_score.desc())
+                .limit(MAX_COMPANIES_PER_SYNC)
+            )
 
         result = await db.execute(stmt)
         companies = result.scalars().all()
@@ -122,6 +175,10 @@ async def sync_companies_to_hubspot(
 
         company_ids = [c.id for c in companies]
         logger.info("Found %d companies to sync", len(companies))
+        
+        if companies:
+            logger.info("Sample company IDs: %s", [str(c.id) for c in companies[:3]])
+            logger.info("Sample company names: %s", [c.company_name for c in companies[:3]])
 
         # STEP 2 — Fetch recent jobs for these companies
         jobs_stmt = (
@@ -139,10 +196,11 @@ async def sync_companies_to_hubspot(
 
         jobs_by_company: Dict[str, List[JobPosting]] = {}
         for job in all_jobs:
-            if job.company_id not in jobs_by_company:
-                jobs_by_company[job.company_id] = []
-            if len(jobs_by_company[job.company_id]) < 10:  # Cap at 10 per company
-                jobs_by_company[job.company_id].append(job)
+            key = str(job.company_id)
+            if key not in jobs_by_company:
+                jobs_by_company[key] = []
+            if len(jobs_by_company[key]) < 10:  # Cap at 10 per company
+                jobs_by_company[key].append(job)
 
         # STEP 3 — Fetch contacts for these companies
         contacts_stmt = select(CompanyContact).where(
@@ -154,9 +212,10 @@ async def sync_companies_to_hubspot(
 
         contacts_by_company: Dict[str, List[CompanyContact]] = {}
         for contact in all_contacts:
-            if contact.company_id not in contacts_by_company:
-                contacts_by_company[contact.company_id] = []
-            contacts_by_company[contact.company_id].append(contact)
+            key = str(contact.company_id)
+            if key not in contacts_by_company:
+                contacts_by_company[key] = []
+            contacts_by_company[key].append(contact)
 
         # STEP 4 — Build company upsert payloads
         company_upsert_records = []
@@ -164,18 +223,31 @@ async def sync_companies_to_hubspot(
         for company in companies:
             logger.debug("Processing company: %s", company.company_name)
 
+            # Get first contact email and phone if available
+            primary_contact_email = ""
+            primary_contact_phone = ""
+            company_contacts = contacts_by_company.get(str(company.id), [])
+            if company_contacts:
+                primary_contact = company_contacts[0]
+                primary_contact_email = primary_contact.email or ""
+                primary_contact_phone = primary_contact.phone or ""
+
             properties = {
                 "name": company.company_name,
-                "domain": company.website or "",
-                "industry": company.industry_apollo or "",
-                "numberofemployees": company.employee_count or "",
+                "domain": company.domains_active[0] if company.domains_active else "",
                 "country": company.countries[0] if company.countries else "",
                 "jobintel_id": str(company.id),
                 "hiring_velocity_score": str(company.hiring_velocity_score or 0),
                 "bd_tags": ", ".join(company.bd_tags or []),
                 "total_postings_7d": str(company.total_postings_7d or 0),
+                # Locations and countries
+                "jobintel_locations": ", ".join(company.locations or []),
+                "jobintel_countries": ", ".join(company.countries or []),
+                "primary_contact_email": primary_contact_email,
+                "primary_contact_phone": primary_contact_phone,
                 "description": (
                     f"Platforms: {', '.join(company.platforms_seen_on or [])}\n"
+                    f"Locations: {', '.join(company.locations or [])}\n"
                     f"Countries: {', '.join(company.countries or [])}\n"
                     f"Total jobs (30d): {company.total_postings_30d}"
                 ),
@@ -188,13 +260,42 @@ async def sync_companies_to_hubspot(
             })
 
         # STEP 5 — Batch upsert companies
-        results = await hubspot_client.batch_upsert_companies(company_upsert_records)
+        results = await hubspot_client_instance.batch_upsert_companies(company_upsert_records)
 
-        jobintel_id_to_hubspot_id = {
-            r["properties"]["jobintel_id"]: r["id"] for r in results
-        }
+        logger.info(
+            "Batch upsert attempted for %d companies, got %d results",
+            len(company_upsert_records), len(results)
+        )
 
-        logger.info("Upserted %d companies to HubSpot", len(results))
+        if not results:
+            logger.warning("Batch upsert returned no results - likely a validation error")
+            # Log the first record to see what might be wrong
+            if company_upsert_records:
+                logger.warning("Sample upsert record: %s", company_upsert_records[0])
+            return {
+                "error": "Batch upsert returned no results from HubSpot",
+                "companies_synced": 0,
+                "notes_created": 0,
+                "deals_created": 0,
+                "contacts_synced": 0,
+                "duration_seconds": round(time.time() - start_time, 1),
+                "synced_at": now_utc.isoformat(),
+            }
+
+        # Map by position — results are returned in same order as inputs
+        # Each company_upsert_records[i] corresponds to results[i]
+        # company_upsert_records[i]["id"] is str(company.id) (our jobintel_id)
+        jobintel_id_to_hubspot_id: dict[str, str] = {}
+        for i, result in enumerate(results):
+            if i < len(company_upsert_records):
+                our_id = company_upsert_records[i]["id"]  # this is str(company.id)
+                if isinstance(result, dict) and result.get("id"):
+                    jobintel_id_to_hubspot_id[our_id] = result["id"]
+
+        logger.info(
+            "Mapped %d company IDs to HubSpot IDs",
+            len(jobintel_id_to_hubspot_id)
+        )
 
         # STEP 6 — Build and batch create notes
         note_inputs = []
@@ -205,7 +306,7 @@ async def sync_companies_to_hubspot(
             if not hubspot_id:
                 continue
 
-            jobs = jobs_by_company.get(company.id, [])
+            jobs = jobs_by_company.get(str(company.id), [])
             note_body = _build_note_body(
                 company.company_name,
                 jobs,
@@ -220,11 +321,11 @@ async def sync_companies_to_hubspot(
             })
             note_company_pairs.append(hubspot_id)
 
-        note_ids = await hubspot_client.batch_create_notes(note_inputs)
+        note_ids = await hubspot_client_instance.batch_create_notes(note_inputs)
 
         # STEP 7 — Batch associate notes to companies
         association_pairs = list(zip(note_company_pairs, note_ids))
-        await hubspot_client.batch_associate_notes(association_pairs)
+        await hubspot_client_instance.batch_associate_notes(association_pairs)
         logger.info("Created and associated %d notes", len(note_ids))
 
         # STEP 8 — Build and create deals for BD signal companies
@@ -261,14 +362,14 @@ async def sync_companies_to_hubspot(
 
         deal_results = []
         if deal_inputs:
-            deal_results = await hubspot_client.batch_create_deals(deal_inputs)
+            deal_results = await hubspot_client_instance.batch_create_deals(deal_inputs)
 
             deal_pairs = [
                 (hs_id, r["id"])
                 for (_, hs_id), r in zip(deal_company_hubspot_ids, deal_results)
             ]
 
-            await hubspot_client.batch_associate_deals(deal_pairs)
+            await hubspot_client_instance.batch_associate_deals(deal_pairs)
             logger.info("Created %d deals", len(deal_results))
 
         # STEP 9 — Batch upsert contacts
@@ -280,7 +381,7 @@ async def sync_companies_to_hubspot(
             if not hubspot_id:
                 continue
 
-            contacts = contacts_by_company.get(company.id, [])
+            contacts = contacts_by_company.get(str(company.id), [])
             for contact in contacts:
                 if not contact.email:
                     continue
@@ -301,7 +402,7 @@ async def sync_companies_to_hubspot(
 
         contact_results = []
         if contact_upsert_records:
-            contact_results = await hubspot_client.batch_upsert_contacts(contact_upsert_records)
+            contact_results = await hubspot_client_instance.batch_upsert_contacts(contact_upsert_records)
             logger.info("Upserted %d contacts", len(contact_results))
 
             # Build email to HubSpot contact ID mapping
@@ -319,7 +420,7 @@ async def sync_companies_to_hubspot(
                     contact_assoc_pairs.append((hs_company_id, hs_contact_id))
 
             if contact_assoc_pairs:
-                await hubspot_client.batch_associate_contacts(contact_assoc_pairs)
+                await hubspot_client_instance.batch_associate_contacts(contact_assoc_pairs)
 
         # STEP 10 — Write HubSpot IDs back to DB
         # Update company HubSpot IDs
@@ -353,7 +454,7 @@ async def sync_companies_to_hubspot(
 
         # STEP 11 — Return summary
         return {
-            "companies_synced": len(results),
+            "companies_synced": len(jobintel_id_to_hubspot_id),  # Count of successfully synced companies
             "notes_created": len(note_ids),
             "deals_created": len(deal_results),
             "contacts_synced": len(contact_results),
@@ -386,6 +487,10 @@ async def sync_single_company_to_hubspot(
     """
     start_time = time.time()
     now_utc = datetime.now(timezone.utc)
+    
+    # Get the current HubSpot API key from database or environment
+    api_key = await get_hubspot_api_key(db)
+    hubspot_client_instance = create_hubspot_client(api_key)
 
     try:
         logger.info("Starting HubSpot sync for single company: %s", company_id)
@@ -427,18 +532,30 @@ async def sync_single_company_to_hubspot(
         contacts = contacts_result.scalars().all()
 
         # STEP 4 — Upsert company to HubSpot
+        # Get first contact email and phone if available
+        primary_contact_email = ""
+        primary_contact_phone = ""
+        if contacts:
+            primary_contact = contacts[0]
+            primary_contact_email = primary_contact.email or ""
+            primary_contact_phone = primary_contact.phone or ""
+
         properties = {
             "name": company.company_name,
-            "domain": company.website or "",
-            "industry": company.industry_apollo or "",
-            "numberofemployees": company.employee_count or "",
+            "domain": company.domains_active[0] if company.domains_active else "",
             "country": company.countries[0] if company.countries else "",
             "jobintel_id": str(company.id),
             "hiring_velocity_score": str(company.hiring_velocity_score or 0),
             "bd_tags": ", ".join(company.bd_tags or []),
             "total_postings_7d": str(company.total_postings_7d or 0),
+            # Locations and countries
+            "jobintel_locations": ", ".join(company.locations or []),
+            "jobintel_countries": ", ".join(company.countries or []),
+            "primary_contact_email": primary_contact_email,
+            "primary_contact_phone": primary_contact_phone,
             "description": (
                 f"Platforms: {', '.join(company.platforms_seen_on or [])}\n"
+                f"Locations: {', '.join(company.locations or [])}\n"
                 f"Countries: {', '.join(company.countries or [])}\n"
                 f"Total jobs (30d): {company.total_postings_30d}"
             ),
@@ -450,7 +567,7 @@ async def sync_single_company_to_hubspot(
             "properties": properties,
         }]
 
-        results = await hubspot_client.batch_upsert_companies(company_upsert_records)
+        results = await hubspot_client_instance.batch_upsert_companies(company_upsert_records)
         hubspot_company_id = results[0]["id"] if results else None
 
         if not hubspot_company_id:
@@ -476,9 +593,9 @@ async def sync_single_company_to_hubspot(
             }
         }]
 
-        note_ids = await hubspot_client.batch_create_notes(note_inputs)
+        note_ids = await hubspot_client_instance.batch_create_notes(note_inputs)
         if note_ids:
-            await hubspot_client.batch_associate_notes([(hubspot_company_id, note_ids[0])])
+            await hubspot_client_instance.batch_associate_notes([(hubspot_company_id, note_ids[0])])
 
         # STEP 6 — Create deal if BD signals present and no existing deal
         deal_created = False
@@ -500,9 +617,9 @@ async def sync_single_company_to_hubspot(
                     }
                 }]
 
-                deal_results = await hubspot_client.batch_create_deals(deal_inputs)
+                deal_results = await hubspot_client_instance.batch_create_deals(deal_inputs)
                 if deal_results:
-                    await hubspot_client.batch_associate_deals([(hubspot_company_id, deal_results[0]["id"])])
+                    await hubspot_client_instance.batch_associate_deals([(hubspot_company_id, deal_results[0]["id"])])
                     deal_created = True
 
         # STEP 7 — Upsert contacts
@@ -529,7 +646,7 @@ async def sync_single_company_to_hubspot(
 
         contacts_synced = 0
         if contact_upsert_records:
-            contact_results = await hubspot_client.batch_upsert_contacts(contact_upsert_records)
+            contact_results = await hubspot_client_instance.batch_upsert_contacts(contact_upsert_records)
             contacts_synced = len(contact_results)
 
             # Build email to HubSpot contact ID mapping
@@ -546,7 +663,7 @@ async def sync_single_company_to_hubspot(
             ]
 
             if contact_assoc_pairs:
-                await hubspot_client.batch_associate_contacts(contact_assoc_pairs)
+                await hubspot_client_instance.batch_associate_contacts(contact_assoc_pairs)
 
         # STEP 8 — Write HubSpot IDs back to DB
         company.hubspot_company_id = hubspot_company_id
@@ -556,9 +673,13 @@ async def sync_single_company_to_hubspot(
             company.hubspot_deal_id = deal_results[0]["id"]
 
         # Update contact HubSpot IDs
+        # email_to_hubspot_contact only exists if contacts were upserted
+        _contact_id_map: dict[str, str] = locals().get(
+            "email_to_hubspot_contact", {}
+        )
         for contact in contacts:
-            if contact.email and contact.email in email_to_hubspot_contact:
-                contact.hubspot_contact_id = email_to_hubspot_contact[contact.email]
+            if contact.email and contact.email in _contact_id_map:
+                contact.hubspot_contact_id = _contact_id_map[contact.email]
 
         await db.commit()
 

@@ -3,7 +3,7 @@ Company Metrics Engine – recalculates dynamic company aggregates daily.
 """
 
 from datetime import datetime, timedelta, timezone, date
-from typing import Dict, Any
+from typing import Dict, Any, Set
 
 from sqlalchemy import select, update, func, Date, cast, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +14,7 @@ from app.models.job_posting import JobPosting
 from app.models.company_contact import CompanyContact
 from app.models.daily_insight import DailyInsight
 from app.core.logging import get_logger
+from app.utils.contact_validation import is_valid_phone_number
 
 logger = get_logger(__name__)
 
@@ -83,11 +84,20 @@ async def calculate_company_metrics(db: AsyncSession) -> Dict[str, Any]:
         ghost_posters = {c.get("company_id") for c in (insight.ghost_posters or []) if c.get("company_id")}
         salary_signals = {c.get("company_id") for c in (insight.salary_signals or []) if c.get("company_id")}
 
-    # ── 2.5. Retrieve Companies with Contacts ────────────────────────
-    # Get IDs of companies that have at least one contact
-    contact_query = select(CompanyContact.company_id).distinct()
-    contact_res = await db.execute(contact_query)
-    companies_with_contacts = {str(r[0]) for r in contact_res.all() if r[0]}
+    # ── 2.5. Retrieve Companies with Valid Contacts ────────────────────────
+    # Get IDs of companies that have at least one VALID contact (phone or email)
+    all_contacts_stmt = select(CompanyContact)
+    all_contacts_res = await db.execute(all_contacts_stmt)
+    all_contacts = all_contacts_res.scalars().all()
+    
+    companies_with_valid_contacts: Set[str] = set()
+    for contact in all_contacts:
+        # A contact is valid if it has a valid phone OR a valid email
+        has_valid_phone = contact.phone and is_valid_phone_number(contact.phone)
+        has_valid_email = contact.email and "@" in contact.email
+        
+        if has_valid_phone or has_valid_email:
+            companies_with_valid_contacts.add(str(contact.company_id))
 
     # ── 3. Combine variables to update Company Models ─────────────────
     # We iterate across the stats and assign BD metrics cleanly against all updated hashes.
@@ -137,7 +147,7 @@ async def calculate_company_metrics(db: AsyncSession) -> Dict[str, Any]:
             bd_priority += min(repeat_count * 5, 25)
             summary["struggling_companies"] += 1
             
-        if comp_id in companies_with_contacts:
+        if comp_id in companies_with_valid_contacts:
             tags.append("contact_available")
             bd_priority += 20
                 

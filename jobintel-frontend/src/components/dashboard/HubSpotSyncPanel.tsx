@@ -17,7 +17,11 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 
-export function HubSpotSyncPanel() {
+interface HubSpotSyncPanelProps {
+  onSyncComplete?: () => void;
+}
+
+export function HubSpotSyncPanel({ onSyncComplete }: HubSpotSyncPanelProps = {}) {
   const queryClient = useQueryClient();
   const [hoursBack, setHoursBack] = useState(24);
 
@@ -36,9 +40,25 @@ export function HubSpotSyncPanel() {
     onSuccess: (data) => {
       recordSyncHistory(data);
       queryClient.invalidateQueries({ queryKey: ["hubspot-sync-status"] });
+      // Refetch immediately after sync completes
+      setTimeout(() => {
+        queryClient.refetchQueries({ queryKey: ["hubspot-sync-status"] });
+        onSyncComplete?.();
+      }, 1000);
     },
   });
-
+  const forceResyncMutation = useMutation({
+    mutationFn: () => triggerHubSpotSync(24, true),
+    onSuccess: (data) => {
+      recordSyncHistory(data);
+      queryClient.invalidateQueries({ queryKey: ["hubspot-sync-status"] });
+      // Refetch immediately after sync completes
+      setTimeout(() => {
+        queryClient.refetchQueries({ queryKey: ["hubspot-sync-status"] });
+        onSyncComplete?.();
+      }, 1000);
+    },
+  });
   const setupMutation = useMutation({
     mutationFn: setupHubSpotProperties,
     onSuccess: () => {
@@ -155,17 +175,29 @@ export function HubSpotSyncPanel() {
 
         {/* Last Sync Summary */}
         {status?.last_sync && (
-          <div className="grid grid-cols-2 gap-4 p-3 bg-gray-50 rounded-lg">
+          <div className="grid grid-cols-4 gap-3 p-3 bg-gray-50 rounded-lg">
             <div>
-              <div className="text-sm text-gray-600">Companies Synced</div>
+              <div className="text-xs text-gray-600">Companies</div>
               <div className="text-lg font-semibold">
                 {status.last_sync.companies_synced || 0}
               </div>
             </div>
             <div>
-              <div className="text-sm text-gray-600">Contacts Synced</div>
+              <div className="text-xs text-gray-600">Contacts</div>
               <div className="text-lg font-semibold">
                 {status.last_sync.contacts_synced || 0}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-gray-600">Notes</div>
+              <div className="text-lg font-semibold">
+                {status.last_sync.notes_created || 0}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-gray-600">Deals</div>
+              <div className="text-lg font-semibold">
+                {status.last_sync.deals_created || 0}
               </div>
             </div>
           </div>
@@ -200,7 +232,7 @@ export function HubSpotSyncPanel() {
             <Button
               onClick={() => triggerMutation.mutate()}
               disabled={
-                triggerMutation.isPending || status?.status === "running"
+                triggerMutation.isPending || forceResyncMutation.isPending || status?.status === "running"
               }
               className="flex items-center gap-2"
             >
@@ -210,6 +242,23 @@ export function HubSpotSyncPanel() {
                 <RefreshCw className="h-4 w-4" />
               )}
               {triggerMutation.isPending ? "Syncing..." : "Sync Now"}
+            </Button>
+
+            <Button
+              variant="outline"
+              onClick={() => forceResyncMutation.mutate()}
+              disabled={
+                triggerMutation.isPending || forceResyncMutation.isPending || status?.status === "running"
+              }
+              className="flex items-center gap-2"
+              title="Re-sync ALL companies with their latest data"
+            >
+              {forceResyncMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+              {forceResyncMutation.isPending ? "Resyncing..." : "Force Resync All"}
             </Button>
 
             <Button

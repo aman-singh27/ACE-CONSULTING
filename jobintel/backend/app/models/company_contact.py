@@ -1,15 +1,21 @@
 """
-CompanyContact model – cached people search results from Apollo.
+CompanyContact model – people contacts at companies.
 """
 
 import uuid
+from datetime import datetime, timezone
 from typing import Optional
-from sqlalchemy import Column, String, ForeignKey
+from sqlalchemy import (
+    ForeignKey,
+    Text,
+    DateTime,
+    Index,
+)
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import relationship, Mapped, mapped_column
-
+from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base
 from app.models.base import TimestampMixin
+
 
 class CompanyContact(TimestampMixin, Base):
     __tablename__ = "company_contacts"
@@ -19,23 +25,29 @@ class CompanyContact(TimestampMixin, Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
 
-    # ── Relations ─────────────────────────────────────────────
+    # ── Foreign key ──────────────────────────────────────────
     company_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("companies.id")
+        UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), index=True
     )
-    company = relationship("Company")
 
-    # ── Details ───────────────────────────────────────────────
-    full_name: Mapped[str] = mapped_column(String, nullable=True)
-    title: Mapped[str] = mapped_column(String, nullable=True)
-    email: Mapped[str] = mapped_column(String, nullable=True)
-    phone: Mapped[str] = mapped_column(String, nullable=True)
-    linkedin_url: Mapped[str] = mapped_column(String, nullable=True)
-    department: Mapped[str] = mapped_column(String, nullable=True)
-    seniority: Mapped[str] = mapped_column(String, nullable=True)
-    source: Mapped[str] = mapped_column(String, nullable=True)
+    # ── Contact information ──────────────────────────────────
+    full_name: Mapped[Optional[str]] = mapped_column(Text)
+    title: Mapped[Optional[str]] = mapped_column(Text)
+    email: Mapped[Optional[str]] = mapped_column(Text, index=True)
+    phone: Mapped[Optional[str]] = mapped_column(Text)
+    linkedin_url: Mapped[Optional[str]] = mapped_column(Text)
+
+    # ── Classification ──────────────────────────────────────
+    department: Mapped[Optional[str]] = mapped_column(Text)
+    seniority: Mapped[Optional[str]] = mapped_column(Text)
+    source: Mapped[Optional[str]] = mapped_column(Text)
 
     # ── HubSpot sync ─────────────────────────────────────────
     hubspot_contact_id: Mapped[Optional[str]] = mapped_column(
-        String, nullable=True
+        Text, nullable=True, index=True
+    )
+
+    # ── Indexes (declarative) ────────────────────────────────
+    __table_args__ = (
+        Index("ix_company_contacts_company_id_seniority", company_id, seniority.desc()),
     )

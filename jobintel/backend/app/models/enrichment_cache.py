@@ -1,19 +1,23 @@
 """
-EnrichmentCache model – cached Apollo / enrichment data per company.
+EnrichmentCache model – cached enrichment data from Apollo and other sources.
 """
 
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
-
-from sqlalchemy import DateTime, ForeignKey, Integer, Text
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
+from sqlalchemy import (
+    ForeignKey,
+    Text,
+    DateTime,
+    Index,
+)
+from sqlalchemy.dialects.postgresql import UUID, ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
-
 from app.db.base import Base
+from app.models.base import TimestampMixin
 
 
-class EnrichmentCache(Base):
+class EnrichmentCache(TimestampMixin, Base):
     __tablename__ = "enrichment_cache"
 
     # ── Primary key ──────────────────────────────────────────
@@ -21,27 +25,28 @@ class EnrichmentCache(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
 
-    # ── Company FK ───────────────────────────────────────────
+    # ── Foreign key ──────────────────────────────────────────
     company_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("companies.id"),
-        unique=True,
+        UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), index=True
     )
 
-    # ── Apollo data ──────────────────────────────────────────
-    apollo_org_id: Mapped[Optional[str]] = mapped_column(Text)
-    raw_response = mapped_column(JSONB, nullable=True)
-    contacts = mapped_column(JSONB, nullable=True)
-
-    # ── Company info ─────────────────────────────────────────
+    # ── Enrichment source ────────────────────────────────────
+    apollo_org_id: Mapped[Optional[str]] = mapped_column(Text, index=True)
+    
+    # ── Company data ─────────────────────────────────────────
     employee_count: Mapped[Optional[str]] = mapped_column(Text)
-    founded_year: Mapped[Optional[int]] = mapped_column(Integer)
+    founded_year: Mapped[Optional[int]] = mapped_column()
     revenue_range: Mapped[Optional[str]] = mapped_column(Text)
-    technologies = mapped_column(ARRAY(Text), default=list)
+    technologies: Mapped[list] = mapped_column(ARRAY(Text), default=list)
 
-    # ── Meta ─────────────────────────────────────────────────
+    # ── Raw response ─────────────────────────────────────────
+    raw_response: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+
+    # ── Metadata ─────────────────────────────────────────────
     enriched_by: Mapped[Optional[str]] = mapped_column(Text)
-    enriched_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
+    enriched_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    # ── Indexes (declarative) ────────────────────────────────
+    __table_args__ = (
+        Index("ix_enrichment_cache_company_id", company_id),
     )

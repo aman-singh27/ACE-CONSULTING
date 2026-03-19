@@ -1,128 +1,141 @@
-import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
-import { findCompanyContacts } from "../../services/api/companies";
-import { Loader2, Users, Mail, Linkedin, Check } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { getCompanyContacts } from "../../services/api/companies";
+import { Mail, Phone, Linkedin, ExternalLink } from "lucide-react";
 
 interface CompanyContactsProps {
-    company: any;
+  companyId: string;
 }
 
-export function CompanyContacts({ company }: CompanyContactsProps) {
-    const [contacts, setContacts] = useState<any[]>([]);
-    const [copiedEmail, setCopiedEmail] = useState<string | null>(null);
+interface Contact {
+  id: string;
+  full_name?: string;
+  title?: string;
+  email?: string;
+  phone?: string;
+  linkedin_url?: string;
+  department?: string;
+  seniority?: string;
+}
 
-    const mutation = useMutation({
-        mutationFn: () => findCompanyContacts(company.id),
-        onSuccess: (data) => {
-            if (data?.contacts) {
-                setContacts(data.contacts);
-            }
-        }
-    });
+export function CompanyContacts({ companyId }: CompanyContactsProps) {
+  const {
+    data: contactsResponse,
+    isLoading,
+    isError,
+  } = useQuery<any>({
+    queryKey: ["companyContacts", companyId],
+    queryFn: () => getCompanyContacts(companyId),
+    enabled: !!companyId,
+  });
 
-    const handleCopyEmail = (email: string) => {
-        if (!email) return;
-        navigator.clipboard.writeText(email);
-        setCopiedEmail(email);
-        setTimeout(() => setCopiedEmail(null), 2000);
-    };
+  const contacts = contactsResponse?.items || [];
 
-    if (mutation.isError) {
-        return (
-            <div className="text-center py-4 text-text-error text-sm mt-4 bg-bg-base border border-border-subtle rounded-md">
-                Failed to fetch contacts.
-            </div>
-        );
-    }
+  // Filter out completely empty contacts - only hide those with no data at all
+  const validContacts = contacts.filter((contact: Contact) => {
+    // Hide if no name AND no other useful data
+    const hasAnyData = contact.full_name || contact.email || contact.phone || contact.linkedin_url || contact.title || contact.department || contact.seniority;
+    return hasAnyData;
+  });
 
-    if (mutation.isPending) {
-        return (
-            <div className="flex flex-col items-center justify-center py-8 text-text-secondary mt-4 bg-bg-base border border-border-subtle rounded-md border-dashed">
-                <Loader2 className="animate-spin mb-3 text-accent-primary" size={28} />
-                <span className="text-sm font-medium">Searching contacts...</span>
-            </div>
-        );
-    }
-
-    if (contacts.length > 0) {
-        return (
-            <div className="mt-6 mb-6">
-                <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-[16px] font-semibold text-text-primary flex items-center gap-2">
-                        <Users size={18} />
-                        Key Contacts
-                    </h3>
-                    <span className="text-xs font-medium bg-bg-elevated px-2 py-0.5 rounded-full border border-border-subtle">
-                        {contacts.length} found
-                    </span>
-                </div>
-
-                <div className="overflow-hidden border border-border-subtle rounded-lg bg-bg-base">
-                    <table className="w-full text-left border-collapse">
-                        <thead>
-                            <tr className="bg-bg-elevated border-b border-border-subtle">
-                                <th className="py-2 px-3 text-xs font-medium text-text-secondary uppercase">Name</th>
-                                <th className="py-2 px-3 text-xs font-medium text-text-secondary uppercase">Title</th>
-                                <th className="py-2 px-3 text-xs font-medium text-text-secondary uppercase text-right">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-border-subtle">
-                            {contacts.map((contact: any) => (
-                                <tr key={contact.id || contact.email || contact.full_name} className="hover:bg-bg-surface transition-colors">
-                                    <td className="py-2.5 px-3">
-                                        <div className="font-medium text-sm text-text-primary">{contact.full_name}</div>
-                                    </td>
-                                    <td className="py-2.5 px-3">
-                                        <div className="text-xs text-text-secondary">{contact.title || contact.department || 'Unknown Role'}</div>
-                                    </td>
-                                    <td className="py-2.5 px-3">
-                                        <div className="flex items-center justify-end gap-2">
-                                            {contact.email && (
-                                                <button
-                                                    onClick={() => handleCopyEmail(contact.email)}
-                                                    className="p-1.5 rounded bg-bg-elevated border border-border-subtle text-text-secondary hover:text-text-primary hover:border-accent-primary transition-colors"
-                                                    title="Copy Email"
-                                                >
-                                                    {copiedEmail === contact.email ? <Check size={14} className="text-green-500" /> : <Mail size={14} />}
-                                                </button>
-                                            )}
-                                            {contact.linkedin_url && (
-                                                <a
-                                                    href={contact.linkedin_url}
-                                                    target="_blank"
-                                                    rel="noreferrer"
-                                                    className="p-1.5 rounded bg-[#0A66C2]/10 border border-[#0A66C2]/20 text-[#0A66C2] hover:bg-[#0A66C2]/20 transition-colors"
-                                                    title="Open LinkedIn"
-                                                >
-                                                    <Linkedin size={14} />
-                                                </a>
-                                            )}
-                                        </div>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        );
-    }
-
+  if (isLoading) {
     return (
-        <div className="mt-6 mb-6 py-8 px-4 bg-bg-base border border-border-subtle rounded-lg flex flex-col items-center justify-center gap-3 border-dashed hover:border-accent-primary/50 transition-colors">
-            <div className="h-10 w-10 rounded-full bg-accent-primary/10 flex items-center justify-center mb-1">
-                <Users className="text-accent-primary" size={20} />
-            </div>
-            <p className="text-sm text-text-secondary text-center max-w-xs">
-                Discover HR, Talent, and Engineering leadership contacts for this organization.
-            </p>
-            <button
-                onClick={() => mutation.mutate()}
-                className="mt-2 flex items-center gap-2 px-4 py-2 bg-bg-elevated border border-border-subtle hover:border-accent-primary hover:text-accent-primary text-text-primary rounded-md text-sm font-medium transition-colors shadow-sm"
-            >
-                <Users size={16} />
-                Find Contacts
-            </button>
-        </div>
+      <div className="text-center py-6 text-text-secondary animate-pulse">
+        Loading contacts...
+      </div>
     );
+  }
+
+  if (isError) {
+    return (
+      <div className="text-center py-6 text-text-error">
+        Failed to load contacts
+      </div>
+    );
+  }
+
+  if (contacts.length === 0) {
+    return (
+      <div className="text-center py-6 text-text-secondary bg-bg-base rounded-md border border-border-subtle border-dashed">
+        No contacts found
+      </div>
+    );
+  }
+
+  if (validContacts.length === 0) {
+    return (
+      <div className="text-center py-6 text-text-secondary bg-bg-base rounded-md border border-border-subtle border-dashed">
+        No valid contacts found
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {validContacts.map((contact: Contact) => (
+        <div
+          key={contact.id}
+          className="p-4 rounded-md border border-border-subtle bg-bg-base hover:border-accent-primary/50 transition-colors"
+        >
+          {/* Name and Title */}
+          <div className="mb-2">
+            <h4 className="font-medium text-text-primary">
+              {contact.full_name || "Unknown Name"}
+            </h4>
+            {contact.title && (
+              <p className="text-xs text-text-secondary">{contact.title}</p>
+            )}
+            {contact.department && (
+              <p className="text-xs text-text-secondary">
+                {contact.department}
+              </p>
+            )}
+            {contact.seniority && (
+              <span className="text-xs inline-block mt-1 px-2 py-1 rounded bg-bg-elevated text-text-secondary border border-border-subtle">
+                {contact.seniority}
+              </span>
+            )}
+          </div>
+
+          {/* Contact Links */}
+          <div className="flex flex-wrap gap-2 mt-3">
+            {contact.email && (
+              <a
+                href={`mailto:${contact.email}`}
+                className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs text-text-secondary hover:text-accent-primary hover:bg-bg-elevated transition-colors border border-border-subtle"
+                title={contact.email}
+              >
+                <Mail size={14} />
+                <span className="truncate max-w-[120px]">{contact.email}</span>
+              </a>
+            )}
+
+            {contact.phone && (
+              <a
+                href={`tel:${contact.phone}`}
+                className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs text-text-secondary hover:text-accent-primary hover:bg-bg-elevated transition-colors border border-border-subtle"
+                title={contact.phone}
+              >
+                <Phone size={14} />
+                <span className="truncate max-w-[120px]">{contact.phone}</span>
+              </a>
+            )}
+
+            {contact.linkedin_url && (
+              <a
+                href={contact.linkedin_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs text-blue-500 hover:text-blue-600 hover:bg-bg-elevated transition-colors border border-blue-200/50"
+                title="LinkedIn Profile"
+              >
+                <Linkedin size={14} />
+                LinkedIn
+                <ExternalLink size={12} />
+              </a>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }

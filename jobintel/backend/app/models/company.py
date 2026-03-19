@@ -65,6 +65,8 @@ class Company(TimestampMixin, Base):
     # ── Enrichment ───────────────────────────────────────────
     is_enriched: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     enriched_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    
+    is_confidential: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
 
     apollo_data = mapped_column(JSONB, nullable=True)
 

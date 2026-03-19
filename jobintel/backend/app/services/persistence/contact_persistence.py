@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.company_contact import CompanyContact
 from app.core.logging import get_logger
+from app.utils.contact_validation import is_valid_phone_number
 
 logger = get_logger(__name__)
 
@@ -45,6 +46,11 @@ async def save_extracted_contacts(
             logger.info("Saved new email contact for company %s: %s", company_id, email)
 
     for phone in phones:
+        # Validate phone number before saving
+        if not is_valid_phone_number(phone):
+            logger.info("Skipped invalid phone number for company %s: %s", company_id, phone)
+            continue
+            
         # Check if already exists for this company
         stmt = select(CompanyContact).where(
             CompanyContact.company_id == company_id,

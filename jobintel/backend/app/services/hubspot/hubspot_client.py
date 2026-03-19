@@ -17,13 +17,75 @@ logger = logging.getLogger(__name__)
 MAX_CALLS_PER_10S = 90
 
 
+# Store loaded API key from database to avoid repeated DB queries
+_cached_api_key: Optional[str] = None
+_cache_last_checked: float = 0
+_cache_ttl: float = 300  # Cache for 5 minutes
+
+
+async def get_hubspot_api_key(db: Optional[Any] = None) -> str:
+    """
+    Get the HubSpot API key from database or environment.
+    
+    Priority:
+    1. Database settings (if db is provided)
+    2. Environment variable (.env file)
+    3. Default placeholder value
+    
+    Args:
+        db: Optional AsyncSession for database queries
+        
+    Returns:
+        The HubSpot API key string
+    """
+    global _cached_api_key, _cache_last_checked
+    import time
+    
+    current_time = time.time()
+    
+    # Try to get from database if available and cache is fresh
+    if db is not None:
+        try:
+            from app.services.settings import get_setting
+            
+            # Use cached value if available and fresh
+            if (
+                _cached_api_key is not None and
+                (current_time - _cache_last_checked) < _cache_ttl
+            ):
+                return _cached_api_key
+            
+            db_key = await get_setting(db, "hubspot_api_key")
+            if db_key and db_key != "your_hubspot_api_key_here":
+                _cached_api_key = db_key
+                _cache_last_checked = current_time
+                return db_key
+        except Exception as e:
+            logger.debug(f"Failed to get HubSpot API key from database: {e}")
+    
+    # Fallback to environment variable
+    env_key = settings.HUBSPOT_API_KEY
+    if env_key and env_key != "your_hubspot_api_key_here":
+        return env_key
+    
+    # Return default placeholder
+    return "your_hubspot_api_key_here"
+
+
+def create_hubspot_client(api_key: Optional[str] = None) -> "HubSpotClient":
+    """Factory function to create a new HubSpot client with a specific API key."""
+    return HubSpotClient(api_key=api_key)
+
+
 class HubSpotClient:
     """Async HubSpot API client with rate limiting."""
 
-    def __init__(self) -> None:
+    def __init__(self, api_key: Optional[str] = None) -> None:
         self.base_url = settings.HUBSPOT_BASE_URL
+        # Use provided API key, fallback to settings, then to default
+        api_key_value = api_key or settings.HUBSPOT_API_KEY
         self.headers = {
-            "Authorization": f"Bearer {settings.HUBSPOT_API_KEY}",
+            "Authorization": f"Bearer {api_key_value}",
             "Content-Type": "application/json",
         }
         self._semaphore = asyncio.Semaphore(MAX_CALLS_PER_10S)
@@ -159,22 +221,11 @@ class HubSpotClient:
         note_id = note_response["id"]
 
         # Step 2: Associate note to company
-        assoc_payload = {
-            "inputs": [
-                {
-                    "from": {"id": hubspot_company_id},
-                    "to": {"id": note_id},
-                    "types": [
-                        {
-                            "associationCategory": "HUBSPOT_DEFINED",
-                            "associationTypeId": 190,
-                        }
-                    ],
-                }
-            ]
-        }
+        # Use per-note default association — no typeId needed, most reliable
         await self._request(
-            "PUT", "/crm/v4/associations/companies/notes/batch/create", assoc_payload
+            "PUT",
+            f"/crm/v4/objects/note/{note_id}/associations/default/company/{hubspot_company_id}",
+            None,
         )
 
         return note_id
@@ -348,31 +399,24 @@ class HubSpotClient:
         self, pairs: list[tuple[str, str]]
     ) -> None:
         """
-        Associate notes to companies in bulk.
+        Associate notes to companies using the default association endpoint.
+        Uses PUT /crm/v4/objects/note/{note_id}/associations/default/company/{company_id}
+        per note — no typeId required, most reliable approach per HubSpot docs.
         pairs: list of (hubspot_company_id, note_id)
-        Uses PUT /crm/v4/associations/companies/notes/batch/create
         """
-        inputs = [
-            {
-                "from": {"id": company_id},
-                "to": {"id": note_id},
-                "types": [
-                    {
-                        "associationCategory": "HUBSPOT_DEFINED",
-                        "associationTypeId": 190,
-                    }
-                ],
-            }
-            for company_id, note_id in pairs
-        ]
-
-        for i in range(0, len(inputs), 100):
-            chunk = inputs[i:i + 100]
-            payload = {"inputs": chunk}
-            await self._request(
-                "PUT", "/crm/v4/associations/companies/notes/batch/create", payload
-            )
-            await asyncio.sleep(0.15)
+        for company_id, note_id in pairs:
+            try:
+                await self._request(
+                    "PUT",
+                    f"/crm/v4/objects/note/{note_id}/associations/default/company/{company_id}",
+                    None,
+                )
+            except Exception as e:
+                logger.warning(
+                    "Failed to associate note %s to company %s: %s",
+                    note_id, company_id, str(e)
+                )
+            await asyncio.sleep(0.12)
 
     async def batch_create_deals(
         self, deals: list[Dict[str, Any]]
@@ -401,7 +445,7 @@ class HubSpotClient:
     ) -> None:
         """
         pairs: list of (hubspot_company_id, deal_id)
-        Uses PUT /crm/v4/associations/companies/deals/batch/create
+        Uses POST /crm/v4/associations/companies/deals/batch/create
         associationTypeId: 342
         """
         inputs = [
@@ -422,7 +466,7 @@ class HubSpotClient:
             chunk = inputs[i:i + 100]
             payload = {"inputs": chunk}
             await self._request(
-                "PUT", "/crm/v4/associations/companies/deals/batch/create", payload
+                "POST", "/crm/v4/associations/companies/deals/batch/create", payload
             )
             await asyncio.sleep(0.15)
 
@@ -455,7 +499,7 @@ class HubSpotClient:
         """
         pairs: list of (hubspot_company_id, contact_id)
         associationTypeId: 280
-        PUT /crm/v4/associations/companies/contacts/batch/create
+        POST /crm/v4/associations/companies/contacts/batch/create
         """
         inputs = [
             {
@@ -475,7 +519,7 @@ class HubSpotClient:
             chunk = inputs[i:i + 100]
             payload = {"inputs": chunk}
             await self._request(
-                "PUT", "/crm/v4/associations/companies/contacts/batch/create", payload
+                "POST", "/crm/v4/associations/companies/contacts/batch/create", payload
             )
             await asyncio.sleep(0.15)
 

@@ -5,6 +5,8 @@ Contact Extractor – extracts emails and phone numbers from raw text.
 import re
 from typing import List, Dict, Set
 
+from app.utils.contact_validation import is_valid_phone_number
+
 # regex for emails
 EMAIL_REGEX = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
 
@@ -20,6 +22,7 @@ EMAIL_BLACKLIST = {
     "careers@sap.com",
     "recruitment@premiumsolutions.qa"
 }
+
 
 def extract_contacts(text: str) -> Dict[str, List[str]]:
     """
@@ -40,10 +43,16 @@ def extract_contacts(text: str) -> Dict[str, List[str]]:
             clean_emails.add(e)
     
     # 2. Phones
-    phones: Set[str] = set(re.findall(PHONE_REGEX, text))
+    raw_phones: Set[str] = set(re.findall(PHONE_REGEX, text))
+    clean_phones: Set[str] = set()
+    
+    for phone in raw_phones:
+        # Validate phone before including it
+        if is_valid_phone_number(phone):
+            clean_phones.add(phone)
     
     # Limit to top 5 to keep table usable
     return {
         "emails": sorted(list(clean_emails))[:5],
-        "phones": sorted(list(phones))[:5]
+        "phones": sorted(list(clean_phones))[:5]
     }

@@ -1,10 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import { getCompanyJobs } from "../../services/api/companies";
 import { Badge } from "../ui/Badge";
 import { X } from "lucide-react";
-import { CompanyEnrichment } from "./CompanyEnrichment";
-import { CompanyContacts } from "./CompanyContacts";
 import { CompanyHubSpotSection } from "./CompanyHubSpotSection";
+import { CompanyContacts } from "./CompanyContacts";
 
 interface CompanyDetailProps {
   company: any; // Using any here to quickly wire up, later refine type
@@ -12,6 +12,7 @@ interface CompanyDetailProps {
 }
 
 export function CompanyDetailPanel({ company, onClose }: CompanyDetailProps) {
+  const navigate = useNavigate();
   const {
     data: jobResponse,
     isLoading,
@@ -21,6 +22,10 @@ export function CompanyDetailPanel({ company, onClose }: CompanyDetailProps) {
     queryFn: () => getCompanyJobs(company.id),
     enabled: !!company?.id,
   });
+
+  const handleJobClick = (jobId: string) => {
+    navigate(`/jobs?jobId=${jobId}`);
+  };
 
   if (!company) return null;
 
@@ -126,22 +131,26 @@ export function CompanyDetailPanel({ company, onClose }: CompanyDetailProps) {
         </div>
       </div>
 
-      {/* Content: Enrichment & Contacts Container */}
-      <div className="px-6 pb-2 border-b border-border-subtle bg-bg-surface">
-        <CompanyEnrichment company={company} />
-        <CompanyContacts company={company} />
-      </div>
-
       {/* Content: HubSpot Integration */}
       <div className="px-6 py-2 border-b border-border-subtle bg-bg-surface">
         <CompanyHubSpotSection company={company} />
       </div>
 
-      {/* Content: Recent Jobs */}
+      {/* Content: Contacts and Recent Jobs */}
       <div className="p-6 overflow-y-auto flex-grow bg-bg-base">
-        <h3 className="text-[16px] font-semibold text-text-primary mb-4">
-          Recent Jobs
-        </h3>
+        {/* Contacts Section */}
+        <div className="mb-8">
+          <h3 className="text-[16px] font-semibold text-text-primary mb-4">
+            Contacts
+          </h3>
+          <CompanyContacts companyId={company.id} />
+        </div>
+
+        {/* Recent Jobs Section */}
+        <div>
+          <h3 className="text-[16px] font-semibold text-text-primary mb-4">
+            Recent Jobs
+          </h3>
 
         {isLoading ? (
           <div className="text-center py-8 text-text-secondary animate-pulse">
@@ -156,7 +165,8 @@ export function CompanyDetailPanel({ company, onClose }: CompanyDetailProps) {
             {jobResponse.items.map((job: any) => (
               <div
                 key={job.id}
-                className="p-4 rounded-md border border-border-subtle bg-bg-base flex flex-col gap-2 hover:border-accent-primary/50 transition-colors"
+                onClick={() => handleJobClick(job.id)}
+                className="p-4 rounded-md border border-border-subtle bg-bg-base flex flex-col gap-2 hover:border-accent-primary/50 transition-colors cursor-pointer"
               >
                 <div className="flex justify-between items-start gap-4">
                   <h4 className="font-medium text-text-primary leading-tight">
@@ -179,6 +189,7 @@ export function CompanyDetailPanel({ company, onClose }: CompanyDetailProps) {
             No recent jobs found
           </div>
         )}
+        </div>
       </div>
     </div>
   );

@@ -60,10 +60,13 @@ async def get_sync_status():
             f"at {synced_at}"
         )
 
+    # Format next scheduled time
+    next_scheduled = "Scheduled for 03:00 UTC daily"
+    
     return SyncStatusResponse(
         status=status,
         last_sync=_last_sync_result,
-        next_scheduled="03:00 UTC daily",
+        next_scheduled=next_scheduled,
         message=message
     )
 
@@ -76,12 +79,18 @@ async def trigger_sync(
         le=168,
         description="How many hours back to sync (1-168)"
     ),
+    force_all: bool = Query(
+        default=False,
+        description="If true, sync ALL companies regardless of last sync time"
+    ),
     db: AsyncSession = Depends(get_db)
 ):
     """
     Manually trigger a HubSpot sync.
-    hours_back controls how far back to look for
-    updated companies (default 24h, max 7 days / 168h).
+    
+    Args:
+        hours_back: How far back to look for updated companies (1-168 hours)
+        force_all: If true, sync ALL companies regardless of when they were updated
     """
     global _sync_in_progress, _last_sync_result
 
@@ -99,7 +108,7 @@ async def trigger_sync(
             sync_companies_to_hubspot
         )
         summary = await sync_companies_to_hubspot(
-            db, hours_back=hours_back
+            db, hours_back=hours_back, force_all=force_all
         )
         _last_sync_result = summary
 
@@ -188,24 +197,106 @@ async def sync_specific_company(
 
 
 @router.post("/setup", status_code=200)
-async def setup_hubspot_properties():
+async def setup_hubspot_properties(
+    db: AsyncSession = Depends(get_db)
+):
     """
     One-time endpoint to create custom HubSpot company
     properties required by JobIntel.
     Safe to call multiple times — skips existing properties.
+    Uses the HubSpot API key from the database if available.
     """
     try:
         from app.services.hubspot.property_setup import (
             create_custom_properties
         )
-        await create_custom_properties()
-        return {
+        await create_custom_properties(db=db)
+        
+        response = {
             "status": "success",
-            "message": "HubSpot custom properties created "
-                       "(existing ones skipped)."
+            "message": "HubSpot custom properties created/verified successfully."
         }
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info("Setup endpoint completed successfully: %s", response)
+        return response
     except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error("Setup endpoint failed with error: %s", str(e), exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"Property setup failed: {str(e)}"
         )
+
+
+# ─── Configuration endpoints ────────────────────────────────────
+
+class APIKeyRequest(BaseModel):
+    api_key: str
+
+
+class APIKeyResponse(BaseModel):
+    status: str
+    message: str
+    saved: bool = True
+
+
+@router.post("/config/api-key", response_model=APIKeyResponse)
+async def save_hubspot_api_key(
+    request: APIKeyRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Save HubSpot API key to the database.
+    This allows the client to save the key without restarting the server.
+    The key is saved to the system_settings table.
+    """
+    from app.services.settings import set_setting
+    
+    try:
+        await set_setting(db, "hubspot_api_key", request.api_key)
+        return APIKeyResponse(
+            status="success",
+            message="HubSpot API key saved successfully. You can now use it immediately.",
+            saved=True
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to save API key: {str(e)}"
+        )
+
+
+@router.get("/config/api-key-status")
+async def get_hubspot_api_key_status(
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Check if a HubSpot API key is configured.
+    Returns configured status without revealing the actual key.
+    """
+    from app.services.settings import get_setting
+    
+    saved_key = await get_setting(db, "hubspot_api_key")
+    env_key = settings.HUBSPOT_API_KEY
+    
+    has_saved_key = saved_key and saved_key != "your_hubspot_api_key_here"
+    has_env_key = env_key and env_key != "your_hubspot_api_key_here"
+    
+    return {
+        "status": "configured" if (has_saved_key or has_env_key) else "not_configured",
+        "configured_from": (
+            "database" if has_saved_key else
+            "environment" if has_env_key else
+            "none"
+        ),
+        "message": (
+            "HubSpot API key is configured in the database. "
+            "No server restart required." if has_saved_key else
+            "HubSpot API key is configured in environment (.env). "
+            "Server restart required for changes." if has_env_key else
+            "HubSpot API key is not configured. "
+            "Please configure it using the setup wizard."
+        )
+    }

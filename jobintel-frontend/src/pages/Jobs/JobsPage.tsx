@@ -1,4 +1,5 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { JobFilters } from "../../components/jobs/JobFilters";
 import { JobTable, type JobItem } from "../../components/jobs/JobTable";
 import { JobDetailDrawer } from "../../components/jobs/JobDetailDrawer";
@@ -7,10 +8,20 @@ import { Button } from "../../components/ui/Button";
 import { Download } from "lucide-react";
 
 export function JobsPage() {
+    const [searchParams] = useSearchParams();
     const [filters, setFilters] = useState<Record<string, any>>({});
     const [page, setPage] = useState(1);
     const [selectedJob, setSelectedJob] = useState<JobItem | null>(null);
     const [isExporting, setIsExporting] = useState(false);
+
+    // Check for jobId in URL params on mount
+    useEffect(() => {
+        const jobId = searchParams.get('jobId');
+        if (jobId && !selectedJob) {
+            // We'll set a dummy job object - the JobDetailDrawer will fetch the full details
+            setSelectedJob({ id: jobId } as JobItem);
+        }
+    }, [searchParams, selectedJob]);
 
     const handleFilterChange = useCallback((newFilters: Record<string, any>) => {
         setFilters(newFilters);

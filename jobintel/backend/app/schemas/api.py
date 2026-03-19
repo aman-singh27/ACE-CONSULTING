@@ -108,6 +108,24 @@ class CompanyResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+# ── Contact Schemas ──────────────────────────────────────────
+
+class CompanyContactResponse(BaseModel):
+    id: UUID
+    company_id: UUID
+    full_name: Optional[str] = None
+    title: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    linkedin_url: Optional[str] = None
+    department: Optional[str] = None
+    seniority: Optional[str] = None
+    source: Optional[str] = None
+    hubspot_contact_id: Optional[str] = None
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
 # ── Priority List Schemas ────────────────────────────────────
 
 class PriorityListCompany(BaseModel):

@@ -13,6 +13,7 @@ export function JobFilters({ onFilterChange }: JobFiltersProps) {
     const [activeDomain, setActiveDomain] = useState<string | null>(null);
     const [activePlatform, setActivePlatform] = useState<string | null>(null);
     const [hideDuplicates, setHideDuplicates] = useState<boolean>(false);
+    const [hideConfidential, setHideConfidential] = useState<boolean>(false);
 
     useEffect(() => {
         // Debounce search
@@ -22,12 +23,13 @@ export function JobFilters({ onFilterChange }: JobFiltersProps) {
             if (activeDomain) filters.domain = activeDomain.toLowerCase();
             if (activePlatform) filters.platform = activePlatform.toLowerCase();
             if (hideDuplicates) filters.is_duplicate = false;
+            if (hideConfidential) filters.hide_confidential = true;
 
             onFilterChange(filters);
         }, 300);
 
         return () => clearTimeout(timer);
-    }, [search, activeDomain, activePlatform, hideDuplicates, onFilterChange]);
+    }, [search, activeDomain, activePlatform, hideDuplicates, hideConfidential, onFilterChange]);
 
     return (
         <div className="w-full bg-bg-surface p-4 rounded-card border border-border-subtle flex flex-col gap-4">
@@ -58,14 +60,26 @@ export function JobFilters({ onFilterChange }: JobFiltersProps) {
                     Hide duplicates
                 </label>
 
+                {/* Hide Confidential Toggle */}
+                <label className="flex items-center gap-2 cursor-pointer text-sm text-text-secondary hover:text-text-primary transition-colors">
+                    <input
+                        type="checkbox"
+                        checked={hideConfidential}
+                        onChange={(e) => setHideConfidential(e.target.checked)}
+                        className="rounded border-border-default text-accent-primary focus:ring-accent-primary bg-bg-base"
+                    />
+                    Hide confidential companies
+                </label>
+
                 {/* Clear Filters */}
-                {(search || activeDomain || activePlatform || hideDuplicates) && (
+                {(search || activeDomain || activePlatform || hideDuplicates || hideConfidential) && (
                     <button
                         onClick={() => {
                             setSearch("");
                             setActiveDomain(null);
                             setActivePlatform(null);
                             setHideDuplicates(false);
+                            setHideConfidential(false);
                         }}
                         className="text-sm text-text-error hover:text-red-400 transition-colors ml-auto"
                     >

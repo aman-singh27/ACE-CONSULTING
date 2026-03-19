@@ -14,9 +14,9 @@ from app.models.company import Company
 from app.models.company import Company
 from app.models.company_contact import CompanyContact
 from app.models.job_posting import JobPosting
-from app.schemas.api import CompanyResponse, JobResponse, PaginatedResponse
-from app.services.enrichment.company_enrichment_service import enrich_company
-from app.services.enrichment.contact_service import fetch_company_contacts
+from app.schemas.api import CompanyResponse, JobResponse, CompanyContactResponse, PaginatedResponse
+from app.services.intelligence.priority_engine import update_all_company_scores
+from app.utils.contact_validation import is_valid_phone_number
 
 router = APIRouter(tags=["companies"])
 
@@ -26,7 +26,7 @@ SortOptions = Literal["bd_priority_score", "last_active_at", "total_postings_30d
 @router.get("", response_model=PaginatedResponse[CompanyResponse])
 async def list_companies(
     page: int = Query(1, ge=1),
-    limit: int = Query(25, ge=1, le=100),
+    limit: int = Query(25, ge=1, le=1000),
     domain: Optional[str] = None,
     country: Optional[str] = None,
     bd_tag: Optional[str] = None,
@@ -136,32 +136,126 @@ async def get_company_jobs(
         limit=limit
     )
 
-@router.post("/{company_id}/enrich")
-async def enrich_company_endpoint(
+
+@router.get("/{company_id}/contacts", response_model=PaginatedResponse[CompanyContactResponse])
+async def get_company_contacts(
     company_id: UUID,
+    page: int = Query(1, ge=1),
+    limit: int = Query(25, ge=1, le=100),
     db: AsyncSession = Depends(get_db)
 ):
-    """Enrich a company profile using Apollo data."""
-    data = await enrich_company(db, company_id)
+    """Get paginated contacts for a specific company."""
     
-    return {
-        "status": "enriched",
-        "data": data
-    }
-
-@router.post("/{company_id}/contacts")
-async def find_contacts(
-    company_id: UUID,
-    db: AsyncSession = Depends(get_db)
-):
-    """Find contacts for a company profile using Apollo people search."""
-    company = await db.get(Company, company_id)
-    if not company:
+    offset = (page - 1) * limit
+    
+    # Verify company exists
+    comp_res = await db.execute(select(Company.id).where(Company.id == company_id))
+    if not comp_res.first():
         raise HTTPException(status_code=404, detail="Company not found")
+    
+    # Fetch all contacts for this company
+    stmt = (
+        select(CompanyContact)
+        .where(CompanyContact.company_id == company_id)
+        .order_by(CompanyContact.seniority.desc().nulls_last())
+        .offset(offset)
+        .limit(limit)
+    )
+    count_stmt = (
+        select(func.count(CompanyContact.id)).where(
+            CompanyContact.company_id == company_id
+        )
+    )
+    
+    total_res = await db.execute(count_stmt)
+    total = total_res.scalar_one()
+    
+    result = await db.execute(stmt)
+    items = result.scalars().all()
+    
+    return PaginatedResponse(
+        items=items,
+        total=total,
+        page=page,
+        limit=limit
+    )
 
-    contacts = await fetch_company_contacts(db, company_id)
+
+@router.post("/admin/recalculate-all-scores")
+async def recalculate_all_scores(db: AsyncSession = Depends(get_db)):
+    """
+    Recalculates BD priority scores and tags for ALL companies.
+    Use this after major logic changes to update existing data.
+    """
+    result = await update_all_company_scores(db)
+    return result
+
+
+@router.post("/admin/fix-contact-available-tags")
+async def fix_contact_available_tags(db: AsyncSession = Depends(get_db)):
+    """
+    Fixes the 'contact_available' BD tag for all companies.
+    Removes the tag from companies that don't have valid contacts.
+    Adds the tag to companies that have valid contacts but are missing the tag.
+    """
+    from app.core.logging import get_logger
+    logger = get_logger(__name__)
+    
+    # Get all companies with contact_available tag
+    stmt = select(Company).where(Company.bd_tags.any("contact_available"))
+    result = await db.execute(stmt)
+    companies_with_tag = result.scalars().all()
+    
+    # Get all contacts
+    contacts_stmt = select(CompanyContact)
+    contacts_result = await db.execute(contacts_stmt)
+    all_contacts = contacts_result.scalars().all()
+    
+    # Build map of companies with valid contacts
+    companies_with_valid_contacts = {}
+    for contact in all_contacts:
+        company_id = str(contact.company_id)
+        has_valid_phone = contact.phone and is_valid_phone_number(contact.phone)
+        has_valid_email = contact.email and "@" in contact.email
+        
+        if has_valid_phone or has_valid_email:
+            if company_id not in companies_with_valid_contacts:
+                companies_with_valid_contacts[company_id] = True
+    
+    # Clean up existing companies
+    removed_count = 0
+    for company in companies_with_tag:
+        company_id = str(company.id)
+        # If company doesn't have valid contacts, remove the tag
+        if company_id not in companies_with_valid_contacts:
+            if "contact_available" in company.bd_tags:
+                company.bd_tags = [tag for tag in company.bd_tags if tag != "contact_available"]
+                removed_count += 1
+                logger.info(f"Removed 'contact_available' tag from {company.company_name}")
+    
+    # Get all companies
+    all_companies_stmt = select(Company)
+    all_companies_result = await db.execute(all_companies_stmt)
+    all_companies = all_companies_result.scalars().all()
+    
+    # Add tag to companies with valid contacts but missing tag
+    added_count = 0
+    for company in all_companies:
+        company_id = str(company.id)
+        if company_id in companies_with_valid_contacts:
+            if "contact_available" not in company.bd_tags:
+                company.bd_tags = company.bd_tags + ["contact_available"]
+                added_count += 1
+                logger.info(f"Added 'contact_available' tag to {company.company_name}")
+    
+    await db.commit()
+    
+    logger.info(f"Contact tag cleanup complete: removed {removed_count}, added {added_count}")
     
     return {
         "status": "success",
-        "contacts": contacts
+        "message": f"Fixed contact_available tags",
+        "tags_removed": removed_count,
+        "tags_added": added_count,
+        "total_processed": removed_count + added_count
     }
