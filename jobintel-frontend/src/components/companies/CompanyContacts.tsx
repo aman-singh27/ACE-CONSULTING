@@ -33,7 +33,14 @@ export function CompanyContacts({ companyId }: CompanyContactsProps) {
   // Filter out completely empty contacts - only hide those with no data at all
   const validContacts = contacts.filter((contact: Contact) => {
     // Hide if no name AND no other useful data
-    const hasAnyData = contact.full_name || contact.email || contact.phone || contact.linkedin_url || contact.title || contact.department || contact.seniority;
+    const hasAnyData =
+      contact.full_name ||
+      contact.email ||
+      contact.phone ||
+      contact.linkedin_url ||
+      contact.title ||
+      contact.department ||
+      contact.seniority;
     return hasAnyData;
   });
 

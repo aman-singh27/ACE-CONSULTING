@@ -30,7 +30,9 @@ export async function triggerHubSpotSync(
   hoursBack: number = 24,
   forceAll: boolean = false,
 ): Promise<SyncTriggerResponse> {
-  const res = await apiClient.post(`/hubspot/sync?hours_back=${hoursBack}&force_all=${forceAll}`);
+  const res = await apiClient.post(
+    `/hubspot/sync?hours_back=${hoursBack}&force_all=${forceAll}`,
+  );
   return res.data;
 }
 

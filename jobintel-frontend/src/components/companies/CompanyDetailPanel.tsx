@@ -152,43 +152,43 @@ export function CompanyDetailPanel({ company, onClose }: CompanyDetailProps) {
             Recent Jobs
           </h3>
 
-        {isLoading ? (
-          <div className="text-center py-8 text-text-secondary animate-pulse">
-            Loading jobs...
-          </div>
-        ) : isError ? (
-          <div className="text-center py-8 text-text-error">
-            Failed to load jobs
-          </div>
-        ) : jobResponse?.items && jobResponse.items.length > 0 ? (
-          <div className="space-y-4">
-            {jobResponse.items.map((job: any) => (
-              <div
-                key={job.id}
-                onClick={() => handleJobClick(job.id)}
-                className="p-4 rounded-md border border-border-subtle bg-bg-base flex flex-col gap-2 hover:border-accent-primary/50 transition-colors cursor-pointer"
-              >
-                <div className="flex justify-between items-start gap-4">
-                  <h4 className="font-medium text-text-primary leading-tight">
-                    {job.title}
-                  </h4>
-                  <span className="text-xs font-medium bg-bg-elevated px-2 py-1 rounded text-text-secondary border border-border-subtle whitespace-nowrap">
-                    {job.source_platform}
-                  </span>
+          {isLoading ? (
+            <div className="text-center py-8 text-text-secondary animate-pulse">
+              Loading jobs...
+            </div>
+          ) : isError ? (
+            <div className="text-center py-8 text-text-error">
+              Failed to load jobs
+            </div>
+          ) : jobResponse?.items && jobResponse.items.length > 0 ? (
+            <div className="space-y-4">
+              {jobResponse.items.map((job: any) => (
+                <div
+                  key={job.id}
+                  onClick={() => handleJobClick(job.id)}
+                  className="p-4 rounded-md border border-border-subtle bg-bg-base flex flex-col gap-2 hover:border-accent-primary/50 transition-colors cursor-pointer"
+                >
+                  <div className="flex justify-between items-start gap-4">
+                    <h4 className="font-medium text-text-primary leading-tight">
+                      {job.title}
+                    </h4>
+                    <span className="text-xs font-medium bg-bg-elevated px-2 py-1 rounded text-text-secondary border border-border-subtle whitespace-nowrap">
+                      {job.source_platform}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3 text-[13px] text-text-secondary">
+                    <span>{job.location_raw || "Remote"}</span>
+                    <span>•</span>
+                    <span>{formatDate(job.posted_at)}</span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-3 text-[13px] text-text-secondary">
-                  <span>{job.location_raw || "Remote"}</span>
-                  <span>•</span>
-                  <span>{formatDate(job.posted_at)}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="text-center py-8 text-text-secondary bg-bg-base rounded-md border border-border-subtle border-dashed">
-            No recent jobs found
-          </div>
-        )}
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-8 text-text-secondary bg-bg-base rounded-md border border-border-subtle border-dashed">
+              No recent jobs found
+            </div>
+          )}
         </div>
       </div>
     </div>

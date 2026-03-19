@@ -21,7 +21,9 @@ interface HubSpotSyncPanelProps {
   onSyncComplete?: () => void;
 }
 
-export function HubSpotSyncPanel({ onSyncComplete }: HubSpotSyncPanelProps = {}) {
+export function HubSpotSyncPanel({
+  onSyncComplete,
+}: HubSpotSyncPanelProps = {}) {
   const queryClient = useQueryClient();
   const [hoursBack, setHoursBack] = useState(24);
 
@@ -232,7 +234,9 @@ export function HubSpotSyncPanel({ onSyncComplete }: HubSpotSyncPanelProps = {})
             <Button
               onClick={() => triggerMutation.mutate()}
               disabled={
-                triggerMutation.isPending || forceResyncMutation.isPending || status?.status === "running"
+                triggerMutation.isPending ||
+                forceResyncMutation.isPending ||
+                status?.status === "running"
               }
               className="flex items-center gap-2"
             >
@@ -248,7 +252,9 @@ export function HubSpotSyncPanel({ onSyncComplete }: HubSpotSyncPanelProps = {})
               variant="outline"
               onClick={() => forceResyncMutation.mutate()}
               disabled={
-                triggerMutation.isPending || forceResyncMutation.isPending || status?.status === "running"
+                triggerMutation.isPending ||
+                forceResyncMutation.isPending ||
+                status?.status === "running"
               }
               className="flex items-center gap-2"
               title="Re-sync ALL companies with their latest data"
@@ -258,7 +264,9 @@ export function HubSpotSyncPanel({ onSyncComplete }: HubSpotSyncPanelProps = {})
               ) : (
                 <RefreshCw className="h-4 w-4" />
               )}
-              {forceResyncMutation.isPending ? "Resyncing..." : "Force Resync All"}
+              {forceResyncMutation.isPending
+                ? "Resyncing..."
+                : "Force Resync All"}
             </Button>
 
             <Button

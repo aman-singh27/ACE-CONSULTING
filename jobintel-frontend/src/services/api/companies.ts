@@ -1,22 +1,22 @@
-import { apiClient } from './client';
+import { apiClient } from "./client";
 
 export async function getCompanies(params: Record<string, any> = {}) {
-    // If params has something like { bdTags: 'Spiking', ... }, pass them
-    const res = await apiClient.get('/companies', { params });
-    return res.data;
+  // If params has something like { bdTags: 'Spiking', ... }, pass them
+  const res = await apiClient.get("/companies", { params });
+  return res.data;
 }
 
 export async function getCompany(id: string) {
-    const res = await apiClient.get(`/companies/${id}`);
-    return res.data;
+  const res = await apiClient.get(`/companies/${id}`);
+  return res.data;
 }
 
 export async function getCompanyJobs(id: string) {
-    const res = await apiClient.get(`/companies/${id}/jobs`);
-    return res.data;
+  const res = await apiClient.get(`/companies/${id}/jobs`);
+  return res.data;
 }
 
 export async function getCompanyContacts(id: string) {
-    const res = await apiClient.get(`/companies/${id}/contacts`);
-    return res.data;
+  const res = await apiClient.get(`/companies/${id}/contacts`);
+  return res.data;
 }
