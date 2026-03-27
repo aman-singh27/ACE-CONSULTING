@@ -126,9 +126,19 @@ class HubSpotClient:
 
                     if response.status_code >= 400:
                         error_body = response.text
-                        logger.error(
-                            "HubSpot API error %d: %s", response.status_code, error_body
-                        )
+                        if response.status_code == 409:
+                            # 409 is often expected during idempotent setup calls.
+                            logger.info(
+                                "HubSpot API conflict %d: %s",
+                                response.status_code,
+                                error_body,
+                            )
+                        else:
+                            logger.error(
+                                "HubSpot API error %d: %s",
+                                response.status_code,
+                                error_body,
+                            )
                         if response.status_code >= 500:
                             raise RuntimeError(
                                 f"HubSpot server error {response.status_code}: {error_body}"
@@ -488,6 +498,26 @@ class HubSpotClient:
             payload = {"inputs": chunk}
             response = await self._request(
                 "POST", "/crm/v3/objects/contacts/batch/upsert", payload
+            )
+            results.extend(response.get("results", []))
+            await asyncio.sleep(0.15)
+        return results
+
+    async def batch_create_contacts(
+        self, records: list[Dict[str, Any]]
+    ) -> list[Dict[str, Any]]:
+        """
+        Create contacts in batches (max 100 per request).
+        Each record: { "properties": { ... } }
+        Uses POST /crm/v3/objects/contacts/batch/create
+        Returns list of created contact objects.
+        """
+        results = []
+        for i in range(0, len(records), 100):
+            chunk = records[i:i + 100]
+            payload = {"inputs": chunk}
+            response = await self._request(
+                "POST", "/crm/v3/objects/contacts/batch/create", payload
             )
             results.extend(response.get("results", []))
             await asyncio.sleep(0.15)

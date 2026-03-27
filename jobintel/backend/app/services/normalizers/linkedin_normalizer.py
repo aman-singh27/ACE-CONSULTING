@@ -14,6 +14,7 @@ from typing import Any, Optional
 
 from app.core.logging import get_logger
 from app.schemas.standard_job import StandardJob
+from app.services.dedup.name_sanitizer import is_url_like, sanitize_company_name
 
 logger = get_logger(__name__)
 
@@ -115,9 +116,15 @@ def normalize_linkedin_job(
     job_id_raw = raw.get("jobId")
     job_id = f"linkedin_{job_id_raw}" if job_id_raw else None
 
+    # Extract and sanitize company name — scrapers sometimes return URLs
+    raw_company = raw.get("companyName") or raw.get("company") or "Unknown"
+    company_name = sanitize_company_name(raw_company)
+    if company_name != raw_company:
+        logger.warning("LinkedIn: sanitized URL company name: %s → %s", raw_company, company_name)
+
     return StandardJob(
         title=raw.get("jobTitle") or raw.get("title") or "Unknown",
-        company_name=raw.get("companyName") or raw.get("company") or "Unknown",
+        company_name=company_name,
         job_url=raw.get("jobUrl") or raw.get("url") or "",
         source_platform="linkedin",
         actor_id=actor_id,

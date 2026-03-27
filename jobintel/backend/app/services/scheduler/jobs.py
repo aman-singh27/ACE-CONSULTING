@@ -7,7 +7,10 @@ from sqlalchemy import select
 from app.db.session import async_session_factory
 from app.models.actor_config import ActorConfig
 from app.models.actor_run import ActorRun
-from app.services.actors.actor_service import trigger_actor
+from app.services.actors.actor_service import (
+    reconcile_running_actor_runs,
+    trigger_actor,
+)
 from app.services.intelligence.insights_engine import generate_daily_insights
 from app.services.intelligence.company_metrics import calculate_company_metrics
 from app.core.logging import get_logger
@@ -24,6 +27,13 @@ async def check_due_actors():
     now = datetime.now(timezone.utc)
     
     async with async_session_factory() as db:
+        # 0. Reconcile stale/running runs first so actors don't get stuck forever.
+        try:
+            await reconcile_running_actor_runs(db)
+        except Exception as e:
+            logger.error(f"Failed to reconcile running actor runs: {e}")
+            await db.rollback()
+
         # 1. Find due actors
         # Actors that are active and either have passed their next run time, 
         # or have NEVER run (next_run_at is None)

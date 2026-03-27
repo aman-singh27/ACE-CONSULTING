@@ -23,7 +23,7 @@ export function PriorityList() {
         <Card className="flex flex-col h-full overflow-hidden">
             <div className="mb-4">
                 <h3 className="text-[16px] font-semibold text-text-primary">Priority List</h3>
-                <p className="text-[14px] text-text-secondary">Top 10 companies for BD</p>
+                <p className="text-[14px] text-text-secondary">Top 50 companies for BD</p>
             </div>
 
             <div className="overflow-auto flex-grow">
@@ -50,7 +50,7 @@ export function PriorityList() {
                                 </TableCell>
                             </TableRow>
                         ) : priorityItems && priorityItems.length > 0 ? (
-                            priorityItems.slice(0, 10).map((item, index) => (
+                            priorityItems.slice(0, 50).map((item, index) => (
                                 <TableRow
                                     key={index}
                                     onClick={() => navigate(`/companies?search=${encodeURIComponent(item.company_name)}`)}

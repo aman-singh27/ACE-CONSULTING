@@ -19,12 +19,93 @@ from app.services.hubspot.hubspot_client import (
     get_hubspot_api_key,
     create_hubspot_client,
 )
+from app.services.dedup.name_sanitizer import is_url_like
 
 logger = get_logger(__name__)
 
 # Constants
 BD_SIGNAL_TAGS = {"spiking", "new_entrant", "salary_signal"}
 MAX_COMPANIES_PER_SYNC = 500
+def _normalize_email(email: str | None) -> str | None:
+    """Normalize and validate email for HubSpot upsert keys."""
+    if not email:
+        return None
+    normalized = email.strip().lower()
+    if not normalized or " " in normalized or normalized.count("@") != 1:
+        return None
+    local_part, domain_part = normalized.split("@", 1)
+    if not local_part or not domain_part:
+        return None
+    return normalized
+
+
+def _split_contact_name(full_name: str | None) -> tuple[str, str]:
+    """Split a full name into firstname/lastname best-effort values."""
+    parts = (full_name or "").strip().split(" ", 1)
+    if not parts or not parts[0]:
+        return "", ""
+    if len(parts) == 1:
+        return parts[0], ""
+    return parts[0], parts[1]
+
+
+def _build_contact_properties(
+    contact: CompanyContact, normalized_email: str | None = None
+) -> Dict[str, str]:
+    """Build a HubSpot-safe contact properties payload."""
+    firstname, lastname = _split_contact_name(contact.full_name)
+    properties: Dict[str, str] = {
+        "firstname": firstname,
+        "lastname": lastname,
+        "jobtitle": contact.title or "",
+    }
+
+    if normalized_email:
+        properties["email"] = normalized_email
+    if contact.phone:
+        properties["phone"] = contact.phone
+    if contact.linkedin_url:
+        # HubSpot's standard contact LinkedIn URL field.
+        properties["hs_linkedin_url"] = contact.linkedin_url
+
+    return properties
+
+
+def _format_bd_tags(tags: list[str]) -> str:
+    """Format BD tags into a human-readable string for HubSpot."""
+    if not tags:
+        return "No signals"
+
+    TAG_LABELS = {
+        "spiking": "🔥 Hiring Spike",
+        "struggling": "⚠️ Struggling to Fill",
+        "new_entrant": "🆕 New Entrant",
+        "salary_signal": "💰 Salary Signal",
+        "contact_available": "📞 Contact Available",
+        "ghost_poster": "👻 Ghost Poster",
+    }
+
+    formatted = []
+    for tag in tags:
+        label = TAG_LABELS.get(tag, tag.replace("_", " ").title())
+        formatted.append(label)
+
+    return " | ".join(formatted)
+
+
+def _signal_strength(tags: list[str]) -> str:
+    """Return a plain-English signal strength label based on tag count."""
+    HIGH_VALUE_TAGS = {"spiking", "salary_signal", "new_entrant"}
+    high_count = sum(1 for t in tags if t in HIGH_VALUE_TAGS)
+
+    if high_count >= 2:
+        return "🔴 High Priority — multiple strong signals"
+    elif high_count == 1:
+        return "🟡 Medium Priority — one strong signal"
+    elif tags:
+        return "🟢 Low Priority — weak signals only"
+    else:
+        return "⚪ No signals"
 
 
 def _build_note_body(
@@ -53,8 +134,10 @@ def _build_note_body(
     note_lines = [
         "=== JobIntel Hiring Signal Report ===",
         f"Company: {company_name}",
-        f"BD Tags: {', '.join(bd_tags) or 'None'}",
+        f"BD Signals: {_format_bd_tags(bd_tags)}",
         f"Synced: {today}",
+        "",
+        f"Signal Strength: {_signal_strength(bd_tags)}",
         "",
         "Recent Job Postings (last 7 days):",
     ]
@@ -223,6 +306,11 @@ async def sync_companies_to_hubspot(
         for company in companies:
             logger.debug("Processing company: %s", company.company_name)
 
+            # Skip companies with URL-like names (bad data from scrapers)
+            if is_url_like(company.company_name or ""):
+                logger.warning("Skipping company with URL name: %s", company.company_name)
+                continue
+
             # Get first contact email and phone if available
             primary_contact_email = ""
             primary_contact_phone = ""
@@ -238,7 +326,8 @@ async def sync_companies_to_hubspot(
                 "country": company.countries[0] if company.countries else "",
                 "jobintel_id": str(company.id),
                 "hiring_velocity_score": str(company.hiring_velocity_score or 0),
-                "bd_tags": ", ".join(company.bd_tags or []),
+                "bd_tags": _format_bd_tags(company.bd_tags or []),
+                "bd_tag_count": str(len(company.bd_tags or [])),
                 "total_postings_7d": str(company.total_postings_7d or 0),
                 # Locations and countries
                 "jobintel_locations": ", ".join(company.locations or []),
@@ -373,54 +462,130 @@ async def sync_companies_to_hubspot(
             logger.info("Created %d deals", len(deal_results))
 
         # STEP 9 — Batch upsert contacts
-        contact_upsert_records = []
-        contact_company_map = []  # list of (company_id, email) to resolve associations after
+        contact_upsert_records: List[Dict[str, Any]] = []
+        contact_meta: List[Dict[str, Any]] = []
+        phone_only_create_records: List[Dict[str, Any]] = []
+        phone_only_meta: List[Dict[str, Any]] = []
+        existing_contact_id_map: Dict[Any, str] = {}
+        seen_emails: set[str] = set()
+        invalid_email_count = 0
 
         for company in companies:
             hubspot_id = jobintel_id_to_hubspot_id.get(str(company.id))
             if not hubspot_id:
                 continue
 
-            contacts = contacts_by_company.get(str(company.id), [])
-            for contact in contacts:
-                if not contact.email:
+            company_contacts = contacts_by_company.get(str(company.id), [])
+            for contact in company_contacts:
+                normalized_email = _normalize_email(contact.email)
+                if contact.email and not normalized_email:
+                    invalid_email_count += 1
+
+                if normalized_email:
+                    if normalized_email not in seen_emails:
+                        contact_upsert_records.append({
+                            "idProperty": "email",
+                            "id": normalized_email,
+                            "properties": _build_contact_properties(
+                                contact,
+                                normalized_email=normalized_email,
+                            ),
+                        })
+                        seen_emails.add(normalized_email)
+
+                    contact_meta.append({
+                        "email": normalized_email,
+                        "hs_company_id": hubspot_id,
+                        "contact_id": contact.id,
+                    })
                     continue
 
-                name_parts = (contact.full_name or "").split(" ", 1)
-                contact_upsert_records.append({
-                    "idProperty": "email",
-                    "id": contact.email,
-                    "properties": {
-                        "email": contact.email,
-                        "firstname": name_parts[0] if name_parts else "",
-                        "lastname": name_parts[1] if len(name_parts) > 1 else "",
-                        "jobtitle": contact.title or "",
-                        "linkedin__url": contact.linkedin_url or "",
-                    },
-                })
-                contact_company_map.append((contact.email, hubspot_id, contact.id))
+                if contact.phone:
+                    if contact.hubspot_contact_id:
+                        existing_contact_id_map[contact.id] = contact.hubspot_contact_id
+                        continue
 
-        contact_results = []
+                    phone_only_create_records.append(
+                        {"properties": _build_contact_properties(contact)}
+                    )
+                    phone_only_meta.append({
+                        "hs_company_id": hubspot_id,
+                        "contact_id": contact.id,
+                    })
+                else:
+                    logger.debug(
+                        "Skipping contact %s for company %s (no valid email or phone)",
+                        contact.id,
+                        company.company_name,
+                    )
+
+        if invalid_email_count:
+            logger.info(
+                "Skipped %d invalid email values during HubSpot contact sync",
+                invalid_email_count,
+            )
+
+        email_to_hubspot_id: Dict[str, str] = {}
+        contact_id_to_hubspot_id: Dict[Any, str] = dict(existing_contact_id_map)
+        contact_assoc_pairs: set[tuple[str, str]] = set()
+        contacts_synced = 0
+
         if contact_upsert_records:
-            contact_results = await hubspot_client_instance.batch_upsert_contacts(contact_upsert_records)
-            logger.info("Upserted %d contacts", len(contact_results))
+            contact_results = await hubspot_client_instance.batch_upsert_contacts(
+                contact_upsert_records
+            )
 
-            # Build email to HubSpot contact ID mapping
-            email_to_hubspot_contact = {
-                r["properties"]["email"]: r["id"]
-                for r in contact_results
-                if r.get("properties", {}).get("email")
-            }
+            for i, result in enumerate(contact_results):
+                hubspot_contact_id = result.get("id")
+                if not hubspot_contact_id:
+                    continue
 
-            # Build association pairs
-            contact_assoc_pairs = []
-            for email, hs_company_id, _ in contact_company_map:
-                hs_contact_id = email_to_hubspot_contact.get(email)
-                if hs_contact_id:
-                    contact_assoc_pairs.append((hs_company_id, hs_contact_id))
+                result_props = result.get("properties") or {}
+                result_email = _normalize_email(result_props.get("email"))
+                if not result_email and i < len(contact_upsert_records):
+                    result_email = contact_upsert_records[i]["id"]
 
-            if contact_assoc_pairs:
-                await hubspot_client_instance.batch_associate_contacts(contact_assoc_pairs)
+                if result_email:
+                    email_to_hubspot_id[result_email] = hubspot_contact_id
+
+            for meta in contact_meta:
+                hubspot_contact_id = email_to_hubspot_id.get(meta["email"])
+                if hubspot_contact_id:
+                    contact_assoc_pairs.add((meta["hs_company_id"], hubspot_contact_id))
+                    contact_id_to_hubspot_id[meta["contact_id"]] = hubspot_contact_id
+
+            contacts_synced += len(email_to_hubspot_id)
+
+        if phone_only_create_records:
+            phone_create_results = await hubspot_client_instance.batch_create_contacts(
+                phone_only_create_records
+            )
+
+            for i, result in enumerate(phone_create_results):
+                if i >= len(phone_only_meta):
+                    break
+
+                hubspot_contact_id = result.get("id")
+                if not hubspot_contact_id:
+                    continue
+
+                meta = phone_only_meta[i]
+                contact_assoc_pairs.add((meta["hs_company_id"], hubspot_contact_id))
+                contact_id_to_hubspot_id[meta["contact_id"]] = hubspot_contact_id
+                contacts_synced += 1
+
+        if contact_assoc_pairs:
+            await hubspot_client_instance.batch_associate_contacts(
+                list(contact_assoc_pairs)
+            )
+
+        logger.info(
+            "Synced %d contacts total (%d email upserts, %d phone-only creates), associated %d",
+            contacts_synced,
+            len(email_to_hubspot_id),
+            len(phone_only_meta),
+            len(contact_assoc_pairs),
+        )
 
         # STEP 10 — Write HubSpot IDs back to DB
         # Update company HubSpot IDs
@@ -439,15 +604,12 @@ async def sync_companies_to_hubspot(
                     break
 
         # Update contact HubSpot IDs
-        for email, _, contact_id in contact_company_map:
-            hs_contact_id = email_to_hubspot_contact.get(email)
-            if hs_contact_id:
-                # Find the contact by ID and update
-                for company_contacts in contacts_by_company.values():
-                    for contact in company_contacts:
-                        if contact.id == contact_id:
-                            contact.hubspot_contact_id = hs_contact_id
-                            break
+        if contact_id_to_hubspot_id:
+            for contacts_list in contacts_by_company.values():
+                for contact in contacts_list:
+                    hubspot_contact_id = contact_id_to_hubspot_id.get(contact.id)
+                    if hubspot_contact_id:
+                        contact.hubspot_contact_id = hubspot_contact_id
 
         await db.commit()
         logger.info("Wrote HubSpot IDs back to DB")
@@ -457,7 +619,7 @@ async def sync_companies_to_hubspot(
             "companies_synced": len(jobintel_id_to_hubspot_id),  # Count of successfully synced companies
             "notes_created": len(note_ids),
             "deals_created": len(deal_results),
-            "contacts_synced": len(contact_results),
+            "contacts_synced": contacts_synced,
             "duration_seconds": round(time.time() - start_time, 1),
             "synced_at": now_utc.isoformat(),
         }
@@ -509,6 +671,17 @@ async def sync_single_company_to_hubspot(
                 "duration_seconds": round(time.time() - start_time, 1),
             }
 
+        # Skip companies with URL-like names (bad data from scrapers)
+        if is_url_like(company.company_name or ""):
+            logger.warning("Skipping single company sync — URL name: %s", company.company_name)
+            return {
+                "error": f"Company name is a URL: {company.company_name}",
+                "company_synced": False,
+                "deal_created": False,
+                "contacts_synced": 0,
+                "duration_seconds": round(time.time() - start_time, 1),
+            }
+
         # STEP 2 — Fetch recent jobs for this company
         jobs_stmt = (
             select(JobPosting)
@@ -546,7 +719,8 @@ async def sync_single_company_to_hubspot(
             "country": company.countries[0] if company.countries else "",
             "jobintel_id": str(company.id),
             "hiring_velocity_score": str(company.hiring_velocity_score or 0),
-            "bd_tags": ", ".join(company.bd_tags or []),
+            "bd_tags": _format_bd_tags(company.bd_tags or []),
+            "bd_tag_count": str(len(company.bd_tags or [])),
             "total_postings_7d": str(company.total_postings_7d or 0),
             # Locations and countries
             "jobintel_locations": ", ".join(company.locations or []),
@@ -623,47 +797,120 @@ async def sync_single_company_to_hubspot(
                     deal_created = True
 
         # STEP 7 — Upsert contacts
-        contact_upsert_records = []
-        contact_emails = []
+        contact_upsert_records: List[Dict[str, Any]] = []
+        contact_meta_single: List[Dict[str, Any]] = []
+        phone_only_create_records: List[Dict[str, Any]] = []
+        phone_only_meta: List[Dict[str, Any]] = []
+        existing_contact_id_map: Dict[Any, str] = {}
+        seen_emails: set[str] = set()
+        invalid_email_count = 0
 
         for contact in contacts:
-            if not contact.email:
-                continue
+            normalized_email = _normalize_email(contact.email)
+            if contact.email and not normalized_email:
+                invalid_email_count += 1
 
-            name_parts = (contact.full_name or "").split(" ", 1)
-            contact_upsert_records.append({
-                "idProperty": "email",
-                "id": contact.email,
-                "properties": {
-                    "email": contact.email,
-                    "firstname": name_parts[0] if name_parts else "",
-                    "lastname": name_parts[1] if len(name_parts) > 1 else "",
-                    "jobtitle": contact.title or "",
-                    "linkedin__url": contact.linkedin_url or "",
-                },
-            })
-            contact_emails.append(contact.email)
+            if normalized_email:
+                if normalized_email not in seen_emails:
+                    contact_upsert_records.append({
+                        "idProperty": "email",
+                        "id": normalized_email,
+                        "properties": _build_contact_properties(
+                            contact,
+                            normalized_email=normalized_email,
+                        ),
+                    })
+                    seen_emails.add(normalized_email)
 
+                contact_meta_single.append({
+                    "email": normalized_email,
+                    "contact_id": contact.id,
+                })
+            else:
+                # Phone-only contact — HubSpot requires email as idProperty for batch upsert
+                if contact.phone:
+                    if contact.hubspot_contact_id:
+                        existing_contact_id_map[contact.id] = contact.hubspot_contact_id
+                        continue
+
+                    phone_only_create_records.append(
+                        {"properties": _build_contact_properties(contact)}
+                    )
+                    phone_only_meta.append({"contact_id": contact.id})
+                else:
+                    logger.debug(
+                        "Skipping contact %s for company %s (no valid email or phone)",
+                        contact.id,
+                        company.company_name,
+                    )
+
+        if invalid_email_count:
+            logger.info(
+                "Skipped %d invalid email values during single-company contact sync",
+                invalid_email_count,
+            )
+
+        email_to_hubspot_id: Dict[str, str] = {}
+        contact_id_to_hubspot_id: Dict[Any, str] = dict(existing_contact_id_map)
+        contact_assoc_pairs: set[tuple[str, str]] = set()
         contacts_synced = 0
+
         if contact_upsert_records:
-            contact_results = await hubspot_client_instance.batch_upsert_contacts(contact_upsert_records)
-            contacts_synced = len(contact_results)
+            contact_results = await hubspot_client_instance.batch_upsert_contacts(
+                contact_upsert_records
+            )
 
-            # Build email to HubSpot contact ID mapping
-            email_to_hubspot_contact = {
-                r["properties"]["email"]: r["id"]
-                for r in contact_results
-                if r.get("properties", {}).get("email")
-            }
+            for i, result in enumerate(contact_results):
+                hubspot_contact_id = result.get("id")
+                if not hubspot_contact_id:
+                    continue
 
-            # Associate contacts to company
-            contact_assoc_pairs = [
-                (hubspot_company_id, hs_contact_id)
-                for email, hs_contact_id in email_to_hubspot_contact.items()
-            ]
+                result_props = result.get("properties") or {}
+                result_email = _normalize_email(result_props.get("email"))
+                if not result_email and i < len(contact_upsert_records):
+                    result_email = contact_upsert_records[i]["id"]
 
-            if contact_assoc_pairs:
-                await hubspot_client_instance.batch_associate_contacts(contact_assoc_pairs)
+                if result_email:
+                    email_to_hubspot_id[result_email] = hubspot_contact_id
+
+            for meta in contact_meta_single:
+                hubspot_contact_id = email_to_hubspot_id.get(meta["email"])
+                if hubspot_contact_id:
+                    contact_assoc_pairs.add((hubspot_company_id, hubspot_contact_id))
+                    contact_id_to_hubspot_id[meta["contact_id"]] = hubspot_contact_id
+
+            contacts_synced += len(email_to_hubspot_id)
+
+        if phone_only_create_records:
+            phone_create_results = await hubspot_client_instance.batch_create_contacts(
+                phone_only_create_records
+            )
+
+            for i, result in enumerate(phone_create_results):
+                if i >= len(phone_only_meta):
+                    break
+
+                hubspot_contact_id = result.get("id")
+                if not hubspot_contact_id:
+                    continue
+
+                meta = phone_only_meta[i]
+                contact_assoc_pairs.add((hubspot_company_id, hubspot_contact_id))
+                contact_id_to_hubspot_id[meta["contact_id"]] = hubspot_contact_id
+                contacts_synced += 1
+
+        if contact_assoc_pairs:
+            await hubspot_client_instance.batch_associate_contacts(
+                list(contact_assoc_pairs)
+            )
+
+        logger.info(
+            "Single-company sync: %d contacts total (%d email upserts, %d phone-only creates), associated %d",
+            contacts_synced,
+            len(email_to_hubspot_id),
+            len(phone_only_meta),
+            len(contact_assoc_pairs),
+        )
 
         # STEP 8 — Write HubSpot IDs back to DB
         company.hubspot_company_id = hubspot_company_id
@@ -673,13 +920,11 @@ async def sync_single_company_to_hubspot(
             company.hubspot_deal_id = deal_results[0]["id"]
 
         # Update contact HubSpot IDs
-        # email_to_hubspot_contact only exists if contacts were upserted
-        _contact_id_map: dict[str, str] = locals().get(
-            "email_to_hubspot_contact", {}
-        )
-        for contact in contacts:
-            if contact.email and contact.email in _contact_id_map:
-                contact.hubspot_contact_id = _contact_id_map[contact.email]
+        if contact_id_to_hubspot_id:
+            for contact in contacts:
+                hubspot_contact_id = contact_id_to_hubspot_id.get(contact.id)
+                if hubspot_contact_id:
+                    contact.hubspot_contact_id = hubspot_contact_id
 
         await db.commit()
 

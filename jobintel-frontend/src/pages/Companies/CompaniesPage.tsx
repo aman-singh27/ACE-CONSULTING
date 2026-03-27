@@ -3,7 +3,6 @@ import { useSearchParams } from "react-router-dom";
 import { CompanyFilters } from "../../components/companies/CompanyFilters";
 import { CompanyTable } from "../../components/companies/CompanyTable";
 import { CompanyDetailPanel } from "../../components/companies/CompanyDetailPanel";
-import { HubSpotSyncPanel } from "../../components/dashboard/HubSpotSyncPanel";
 
 export function CompaniesPage() {
   const [searchParams] = useSearchParams();
@@ -22,11 +21,6 @@ export function CompaniesPage() {
         <p className="text-text-secondary mt-1">
           Browse and analyze all discovered companies.
         </p>
-      </div>
-
-      {/* HubSpot Sync Panel */}
-      <div className="shrink-0 w-full max-w-md mb-6">
-        <HubSpotSyncPanel />
       </div>
 
       <div className="flex flex-col flex-grow min-h-0 gap-6">

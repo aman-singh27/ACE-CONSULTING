@@ -29,7 +29,7 @@ async def create_actor_run(
     (actor_config may be None, actor_run is always set).
     """
 
-    # Look up the existing actor_runs record created when we triggered the actor
+    # Look up an existing actor_runs record created when we triggered the actor
     result = await db.execute(
         select(ActorRun)
         .where(ActorRun.apify_run_id == apify_run_id)
@@ -37,15 +37,31 @@ async def create_actor_run(
     run = result.scalar_one_or_none()
     
     if not run:
-        logger.warning(f"No existing ActorRun found for apify_run_id={apify_run_id}")
-        # Could create one here as fallback if needed, but since our system is the
-        # only trigger, this shouldn't happen unless we lose the db.
-        raise ValueError(f"ActorRun not found for Apify run {apify_run_id}")
+        logger.warning(
+            "No existing ActorRun found for apify_run_id=%s. Creating fallback run record.",
+            apify_run_id,
+        )
+        config_res = await db.execute(
+            select(ActorConfig).where(ActorConfig.actor_id == actor_id)
+        )
+        actor_config = config_res.scalar_one_or_none()
+
+        now = datetime.now(timezone.utc)
+        run = ActorRun(
+            actor_config_id=actor_config.id if actor_config else None,
+            apify_run_id=apify_run_id,
+            status="running",
+            started_at=now,
+            run_date=now.date(),
+        )
+        db.add(run)
+        await db.flush()
+    else:
+        actor_config = None
 
     # Find linked actor config
-    actor_config = None
     actor_config_id = run.actor_config_id
-    if actor_config_id:
+    if actor_config_id and actor_config is None:
         config_res = await db.execute(
             select(ActorConfig).where(ActorConfig.id == actor_config_id)
         )

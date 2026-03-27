@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
+from pydantic import BaseModel, ConfigDict
 
 from app.api.deps import get_db
 from app.models.actor_config import ActorConfig
@@ -23,6 +24,25 @@ from app.schemas.api import (
 )
 
 router = APIRouter(tags=["runs"])
+
+
+class ActorCreditSummaryResponse(BaseModel):
+    actor_config_id: UUID
+    actor_name: Optional[str] = None
+    platform: Optional[str] = None
+    actual_spend_usd: float
+    run_count_mtd: int
+
+
+class CreditSummaryResponse(BaseModel):
+    total_actual_spend_usd: float
+    total_estimated_usd: float
+    run_count_mtd: int
+    period_start: datetime
+    period_end: datetime
+    per_actor: list[ActorCreditSummaryResponse]
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 @router.get("", response_model=PaginatedResponse[RunResponse])
@@ -182,6 +202,77 @@ async def get_system_health(db: AsyncSession = Depends(get_db)):
         )
         
     return items
+
+
+@router.get("/credit-summary", response_model=CreditSummaryResponse)
+async def get_credit_summary(db: AsyncSession = Depends(get_db)):
+    """Return month-to-date spend totals and per-actor breakdown in UTC."""
+
+    now_utc = datetime.now(timezone.utc)
+    period_start = now_utc.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    period_end = now_utc
+
+    per_actor_stmt = (
+        select(
+            ActorRun.actor_config_id.label("actor_config_id"),
+            ActorConfig.actor_name,
+            ActorConfig.platform,
+            func.coalesce(func.sum(func.coalesce(ActorRun.cost_usd, 0)), 0).label("actual_spend_usd"),
+            func.count(ActorRun.id).label("run_count_mtd"),
+        )
+        .join(ActorConfig, ActorRun.actor_config_id == ActorConfig.id)
+        .where(
+            ActorRun.started_at >= period_start,
+            ActorRun.started_at <= period_end,
+        )
+        .group_by(
+            ActorRun.actor_config_id,
+            ActorConfig.actor_name,
+            ActorConfig.platform,
+        )
+        .order_by(ActorConfig.actor_name.asc().nulls_last(), ActorConfig.platform.asc().nulls_last())
+    )
+
+    totals_stmt = select(
+        func.coalesce(func.sum(func.coalesce(ActorRun.cost_usd, 0)), 0).label("total_actual_spend_usd"),
+        func.count(ActorRun.id).label("run_count_mtd"),
+    ).join(ActorConfig, ActorRun.actor_config_id == ActorConfig.id).where(
+        ActorRun.started_at >= period_start,
+        ActorRun.started_at <= period_end,
+    )
+
+    estimated_stmt = select(
+        func.coalesce(func.sum(func.coalesce(ActorConfig.spend_mtd_usd, 0)), 0).label("total_estimated_usd")
+    )
+
+    per_actor_res = await db.execute(per_actor_stmt)
+    per_actor_rows = per_actor_res.all()
+
+    totals_res = await db.execute(totals_stmt)
+    totals_row = totals_res.one()
+
+    estimated_res = await db.execute(estimated_stmt)
+    estimated_row = estimated_res.one()
+
+    per_actor = [
+        ActorCreditSummaryResponse(
+            actor_config_id=row.actor_config_id,
+            actor_name=row.actor_name,
+            platform=row.platform,
+            actual_spend_usd=float(row.actual_spend_usd or 0),
+            run_count_mtd=int(row.run_count_mtd or 0),
+        )
+        for row in per_actor_rows
+    ]
+
+    return CreditSummaryResponse(
+        total_actual_spend_usd=float(totals_row.total_actual_spend_usd or 0),
+        total_estimated_usd=float(estimated_row.total_estimated_usd or 0),
+        run_count_mtd=int(totals_row.run_count_mtd or 0),
+        period_start=period_start,
+        period_end=period_end,
+        per_actor=per_actor,
+    )
 
 
 @router.get("/{run_id}", response_model=RunDetailResponse)

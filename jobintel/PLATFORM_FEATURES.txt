@@ -1,0 +1,67 @@
+JOBINTEL PLATFORM - FEATURE INVENTORY
+
+1) Data Collection and Ingestion
+- Webhook-based ingestion endpoint for external scraper output (Apify webhook).
+- Actor run pipeline that processes raw records in background.
+- Multi-source normalizer framework for LinkedIn, NaukriGulf, and Bayt data.
+- Configurable actor settings (templates, schedule, source config, domains).
+
+2) Scraper and Actor Management
+- Create, edit, delete, list, and manually trigger actors.
+- Scheduler for periodic actor checks and automated execution windows.
+- Scrapers workspace in frontend to configure and manage data sources.
+- Credit usage visibility panel for scraping operations.
+
+3) Data Quality and Deduplication
+- Record normalization into a unified StandardJob schema.
+- Duplicate detection strategies (exact and cross-source duplicate handling).
+- Company name sanitation and normalization for reliable matching.
+- Company resolution service to map jobs to existing company records or create new ones.
+
+4) Contact Discovery and Enrichment
+- Contact extraction directly from job descriptions (email/phone detection).
+- Extracted contact persistence to company contact records.
+- Apollo-based enrichment to discover company contacts by domain.
+- Contact caching to avoid repeated external lookups.
+- Phone validation and source tagging for enriched contacts.
+
+5) Intelligence and Scoring
+- Company metrics computation and lead scoring (hiring signals).
+- BD tags and operational indicators for prioritization.
+- Daily insights engine to generate business-development intelligence.
+- Priority list generation endpoint for top target companies.
+- Alerts engine and dashboard alerts for action-oriented monitoring.
+- Support for confidential company handling (is_confidential flag).
+
+6) CRM Integration (HubSpot)
+- Save HubSpot API key via backend endpoint (without restart workflow).
+- One-click custom property setup for HubSpot company object.
+- Manual sync trigger for all companies and per-company sync.
+- Nightly scheduled HubSpot sync job.
+- Sync status tracking and history support in frontend.
+- HubSpot company/deal linkage fields persisted per company/contact.
+
+7) Monitoring, Operations, and Health
+- Global API health endpoint.
+- Dashboard KPIs: jobs scraped today, new companies, active actors, BD alerts.
+- Runs monitoring: today runs, system health, credit summary, run detail.
+- Command Center view for high-level operations visibility.
+
+8) Data Exploration and Workflow UI
+- Jobs module with filters, detail drawer, and CSV export.
+- Company Intelligence module with filters, table, and side detail panel.
+- Company-level jobs and contacts views via API.
+- Runs monitor page for pipeline and scrape health tracking.
+- HubSpot workspace with overview, company sync table, history, and setup wizard.
+- Unified navigation: Command Center, Companies, HubSpot, Jobs, Scrapers, Runs, Actors.
+
+9) Admin and Maintenance Utilities
+- Admin API to recalculate all company scores.
+- Admin utility endpoint to repair contact-availability tags.
+- Alembic migrations for schema evolution and operational updates.
+
+10) Platform Foundation
+- FastAPI backend with async SQLAlchemy and PostgreSQL.
+- APScheduler-driven background jobs (insights, metrics, HubSpot sync).
+- Modular service architecture (ingestion, intelligence, enrichment, persistence, hubspot).
+- Frontend built with React + route-based workspace modules.

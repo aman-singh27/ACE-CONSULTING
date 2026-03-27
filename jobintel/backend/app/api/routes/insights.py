@@ -15,6 +15,6 @@ from app.services.intelligence.priority_engine import get_bd_priority_list
 router = APIRouter(tags=["insights"])
 
 @router.get("/priority-list", response_model=list[PriorityListCompany])
-async def get_priority_list(limit: int = 10, db: AsyncSession = Depends(get_db)):
+async def get_priority_list(limit: int = 50, db: AsyncSession = Depends(get_db)):
     """Fetch the top companies ordered by dynamic Business Development Priority Score."""
     return await get_bd_priority_list(db, limit)

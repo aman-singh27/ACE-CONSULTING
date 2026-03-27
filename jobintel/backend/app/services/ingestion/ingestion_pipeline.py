@@ -51,6 +51,12 @@ async def process_dataset(
             logger.debug("First item from dataset %s for debugging: %s", dataset_id, items[0])
 
         # ── Iterate and Write Records ────────────────────────
+        # Some callers perform SELECTs on this session before invoking the
+        # pipeline, which may leave an open transaction. Reset to a clean state
+        # so per-record `db.begin()` blocks work reliably.
+        if db.in_transaction():
+            await db.commit()
+
         for idx, item in enumerate(items, start=1):
             try:
                 # Process each record in its own transaction block
@@ -70,15 +76,31 @@ async def process_dataset(
                 logger.exception("Error processing record %d from dataset %s. Item data: %s", idx, dataset_id, item)
 
         # ── Mark success ─────────────────────────────────────
-        actor_run.status = "success"
-        
+        if total_scraped == 0 and total_errors > 0:
+            actor_run.status = "failed"
+            actor_run.error_log = (
+                f"All records failed processing (errors={total_errors}, dataset={dataset_id})"
+            )
+            logger.warning(
+                "Dataset %s produced no successful records (errors=%d)",
+                dataset_id,
+                total_errors,
+            )
+        else:
+            actor_run.status = "success"
+            actor_run.error_log = None
+
         # Move dynamically added properties into physical columns or generic handling
         # Since DB model currently doesn't have total_new/total_duplicates natively,
-        # we log them for now. 
+        # we log them for now.
         total_new = getattr(actor_run, "total_new", 0)
         logger.info(
-            "Dataset %s processed: scraped=%d, errors=%d, new=%d",
-            dataset_id, total_scraped, total_errors, total_new
+            "Dataset %s processed: scraped=%d, errors=%d, new=%d, final_status=%s",
+            dataset_id,
+            total_scraped,
+            total_errors,
+            total_new,
+            actor_run.status,
         )
 
     except Exception as exc:

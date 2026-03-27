@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import { getDashboardSummary } from "../../services/api/dashboard";
 import { KpiCard } from "../../components/ui/KpiCard";
 import { PriorityList } from "../../components/dashboard/PriorityList";
@@ -13,6 +14,7 @@ interface DashboardSummary {
 }
 
 export function CommandCenterPage() {
+    const navigate = useNavigate();
     const { data: summary, isLoading, isError } = useQuery<DashboardSummary>({
         queryKey: ["dashboardSummary"],
         queryFn: getDashboardSummary,
@@ -43,6 +45,7 @@ export function CommandCenterPage() {
                     label="New companies today"
                     metric={summary?.new_companies_today ?? 0}
                     loading={isLoading}
+                    onClick={() => navigate("/companies")}
                 />
                 <KpiCard
                     label="Active actors"

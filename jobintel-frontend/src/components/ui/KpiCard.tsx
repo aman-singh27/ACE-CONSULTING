@@ -4,11 +4,15 @@ interface KpiCardProps {
     label: string;
     metric: number | string;
     loading?: boolean;
+    onClick?: () => void;
 }
 
-export function KpiCard({ label, metric, loading }: KpiCardProps) {
+export function KpiCard({ label, metric, loading, onClick }: KpiCardProps) {
     return (
-        <Card className="flex flex-col justify-center items-start gap-1 min-h-[100px]">
+        <Card 
+            className={`flex flex-col justify-center items-start gap-1 min-h-[100px] ${onClick ? 'cursor-pointer hover:bg-bg-elevated/50 transition-colors' : ''}`}
+            onClick={onClick}
+        >
             {loading ? (
                 <div className="animate-pulse flex flex-col gap-2 w-full">
                     <div className="h-6 bg-border-subtle rounded w-1/2"></div>

@@ -106,8 +106,10 @@ async def get_bd_priority_list(db: AsyncSession, limit: int = 10) -> List[Dict[s
             hours_since = (now_utc - comp.last_active_at.replace(tzinfo=timezone.utc)).total_seconds() / 3600
             if hours_since <= 24:
                 score += 20
+                tags.append("recently_active")
             elif hours_since <= 72:
                 score += 10
+                tags.append("recently_active")
                 
         # Salary Signals (15%)
         if comp.company_name in salary_signal_names:
@@ -228,8 +230,10 @@ async def update_all_company_scores(db: AsyncSession) -> Dict[str, Any]:
             hours_since = (now_utc - comp.last_active_at.replace(tzinfo=timezone.utc)).total_seconds() / 3600
             if hours_since <= 24:
                 score += 20
+                tags.append("recently_active")
             elif hours_since <= 72:
                 score += 10
+                tags.append("recently_active")
                 
         # Salary Signals (15%)
         if comp.company_name in salary_signal_names:

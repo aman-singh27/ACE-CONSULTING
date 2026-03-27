@@ -11,12 +11,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.logging import get_logger
 from app.models.company import Company
 from app.services.dedup.company_normalizer import normalize_company
+from app.services.dedup.name_sanitizer import is_url_like, sanitize_company_name
 
 logger = get_logger(__name__)
 
 
 async def resolve_company(db: AsyncSession, company_name: str) -> UUID:
     """Resolve a company by name, creating it if it doesn't exist."""
+    
+    # 0. Sanitize URL-like company names
+    if is_url_like(company_name):
+        original = company_name
+        company_name = sanitize_company_name(company_name)
+        logger.warning("URL detected as company name, sanitized: %s → %s", original, company_name)
     
     # 1. Normalize name for matching
     normalized_name = normalize_company(company_name)
